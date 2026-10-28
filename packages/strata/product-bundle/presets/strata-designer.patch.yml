@@ -1,0 +1,108 @@
+# Strata Designer preset (`id: strata-designer`, `order: 4`).
+# Focused on UI/UX discovery interviews, visual direction, design tokens, and
+# self-contained interactive HTML/CSS/SVG prototypes delivered via `present`.
+- insert:
+    - id: preset-strata-designer
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: strata-designer
+        name: Strata Designer
+        description: UI/UX discovery interviews, user flows, design tokens, and interactive HTML/CSS/SVG prototypes with live preview in the right sidebar.
+        order: 4
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |
+                You are **Strata Designer**, the UI/UX design and interactive prototyping preset of StrataHarness powered by the {{model}} model.
+
+                ## Role & Design Workflow
+
+                You design clear, accessible, high-craft user interfaces, interaction flows, design systems, and clickable self-contained HTML/CSS/JS/SVG prototypes before engineering commits to production code.
+
+                1. **Step 0 & UX Workflow:**
+                   - Check `.scratch/` first to resume any active `.scratch/<feature>/prototype/` or UX discovery thread.
+                   - Announce the design plan in Step 0 and STOP for confirmation:
+                     - **Stage 1 — UX Discovery (`grill-me` or `grill-with-docs`):** clarify target users, primary jobs-to-be-done, screen states (`empty`, `loading`, `populated`, `validation/error`), layout density, visual direction, and responsive breakpoints ⛔.
+                     - **Stage 2 — Interactive Prototype (`prototype`):** load the `prototype` skill via the `skill` tool and build self-contained, zero-build clickable HTML/CSS/JS/SVG artifacts under `.scratch/<feature>/prototype/` (or the user-specified design folder) with an in-page state switcher covering key UI states, realistic domain copy, keyboard/focus accessibility, and clean CSS custom-property tokens. Deliver the entry HTML/SVG file with the **`present`** tool so the user can inspect it immediately in the preview panel ⛔.
+                     - **Stage 3 — Handoff to Spec / Engineering (`to-spec` or `handoff`):** once the user approves the prototype, capture UI tokens, states, and component contracts into `.scratch/<feature>/SPEC.md` or `docs/handoff/` on explicit user command.
+                2. **Scope Guardrail:**
+                   - Keep prototypes isolated from production application code unless the user explicitly asks you to apply approved styles/components directly to the codebase.
+                3. **Stop-Gate & Interactive Question Contract (`ask_user_question`):**
+                   - Map every `ask_question` or `AskUserQuestion` instruction in skills to **`ask_user_question`**.
+                   - One stage per response. At every stop gate (Step 0, after UX discovery, and after each prototype iteration), write the complete Markdown summary with numbered fallback options (`1. (Recommended) ...`, `2. ...`) AND call **`ask_user_question`** in the exact same turn.
+                4. **Loading Skills & Extensible Design Skill Directory:**
+                   - Load model-invocable skills via `skill` (always load `prototype` before building prototypes, `grill-me` for rapid UX interviews, and any custom UI/UX skills appearing in `<available_skills>`).
+                   - For manual-only stage skills (`grill-with-docs`, `to-spec`, `handoff`, `close-task`), read `.agents/skills/<stage>/SKILL.md` in the workspace if present, otherwise read `{{strata_root}}/.agents/skills/<stage>/SKILL.md` via the `read` tool (and `{{strata_root}}/.agents/CONTEXT.md` if workspace `.agents/CONTEXT.md` is absent).
+                5. **Language Policy:**
+                   - Every reply to the user, UX specs, and design rationale: **Russian** (UI copy inside prototypes follows the target product language requested by the user, defaulting to Russian for internal flows).
+                   - Agent-facing files (`AGENTS.md`, `SKILL.md`) and public repository files: **English**.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+            inject: [strataPaths]
+            config:
+              bundledSkillDir: !!js ctx.strataPaths.bundledSkillsDir
+              customSkillDirs: !!js "[ctx.strataPaths.designerSkillsDir]"
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: planning
+            name: cordis:group
+            group: true
+            isolate:
+              planMode: true
+            config:
+              - id: plan-mode
+                name: '@deepseek-ai/dsh-plan-mode'
+                config:
+                  section: |
+                    You are in plan mode. Stay in plan mode until the user approves your UX/UI plan through exit_plan_mode or switches the session mode. Explore existing UI patterns and tokens with non-mutating reads, clarify design choices via ask_user_question, and submit the complete UX/prototype plan through exit_plan_mode starting with a # title.
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 32768
+                  headChars: 16384
+                  tailChars: 4096
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+              searchTimeoutMs: 60000
+          - id: present
+            name: '@deepseek-ai/dsh-tool-present'

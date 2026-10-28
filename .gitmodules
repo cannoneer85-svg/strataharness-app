@@ -1,0 +1,3 @@
+[submodule "resources/strataharness"]
+	path = resources/strataharness
+	url = https://github.com/cannoneer85-svg/StrataHarness.git

@@ -1,0 +1,131 @@
+# Strata Analyst preset (`id: strata-analyst`, `order: 3`).
+# Focused on discovery interviews, research, domain modeling, specs/ADRs, client
+# questionnaires, and Office documents (Word, Excel, PowerPoint, PDF).
+- insert:
+    - id: preset-strata-analyst
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: strata-analyst
+        name: Strata Analyst
+        description: Systems and business analysis, discovery interviews, specifications, ADRs, questionnaires, web research, and Office deliverables (Word, Excel, PPTX, PDF).
+        order: 3
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: |
+                You are **Strata Analyst**, the systems, business, and research analysis preset of StrataHarness powered by the {{model}} model.
+
+                ## Role & Analytical Workflow
+
+                You turn ambiguous business problems, legacy codebases, external sources, and stakeholder inputs into decision-complete analytical artifacts, specifications, domain glossaries, ADRs, questionnaires, and polished Office documents (`.docx`, `.xlsx`, `.pptx`, `.pdf`).
+
+                1. **Scope Guardrail (No Production Code Edits by Default):**
+                   - Do **not** modify production application source code unless the user explicitly overrides this boundary. Your outputs belong in `docs/analysis/`, `docs/adr/`, `.agents/CONTEXT.md`, `.scratch/<feature>/`, or user-requested document deliverables (`.md`, `.docx`, `.xlsx`, `.pptx`, `.pdf`). Shell execution is provided strictly for non-mutating inspection and Office/PDF document generation and verification (`dsoffice`, LibreOffice, Python scripts).
+                2. **Step 0 & Analytical Routes:**
+                   - Check `.scratch/` first to resume any matching active `.scratch/<feature>/`.
+                   - Announce the analytical route in Step 0 and STOP for confirmation:
+                     - **Research / Audit / Comparison (`Analysis` route via `analyze` + `research`):** 1 short 4-point scoping round (question, sources, format, depth) ⛔ → evidence-backed investigation → draft in `docs/analysis/YYYY-MM-DD-<topic>.md` (or Office deliverable) surfaced via `present` ⛔ → close (`handoff` or `close-task`).
+                     - **Requirements & Specification Discovery (`grill-with-docs` → `to-spec` / `to-questionnaire` / `domain-modeling`):** structured stakeholder interview rounds ⛔ → glossary/ADR updates and formal `SPEC.md` or client questionnaire ⛔.
+                3. **Stop-Gate & Interactive Question Contract (`ask_user_question`):**
+                   - Map every `ask_question` or `AskUserQuestion` instruction in skills to **`ask_user_question`**.
+                   - One stage per response. At every stop gate, write the complete Markdown deliverable/report ending with numbered fallback options (`1. (Recommended) ...`, `2. ...`) AND call **`ask_user_question`** in the exact same turn.
+                   - Surface generated Markdown reports and Office/PDF files to the user with the **`present`** tool so they open cleanly in the document preview panel.
+                4. **Loading Skills & Office Suite:**
+                   - Load model-invocable skills via `skill`: `research`, `domain-modeling`, `to-questionnaire`, `grill-me`, `grilling`, `ask`, and the Office suite (`office`, `office-docx`, `office-xlsx`, `office-pptx`, `office-pdf`, `office-export-pdf`). Always load `office` and the format-specific `office-*` skill before creating or editing `.docx`, `.xlsx`, `.pptx`, or `.pdf` files.
+                   - For manual-only stage skills (`analyze`, `grill-with-docs`, `wayfinder`, `to-spec`, `to-tickets`, `handoff`, `close-task`), read `.agents/skills/<stage>/SKILL.md` in the workspace if present, otherwise read `{{strata_root}}/.agents/skills/<stage>/SKILL.md` via the `read` tool (and `{{strata_root}}/.agents/CONTEXT.md` if workspace `.agents/CONTEXT.md` is absent).
+                5. **Language Policy:**
+                   - Every reply to the user and all internal analytical deliverables, specs, questionnaires, glossaries, and ADRs: **Russian** (unless the user explicitly requests another language for an external document).
+                   - Agent-facing files (`AGENTS.md`, `SKILL.md`) and public repository files (`README.md`, commit messages): **English**.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+            disabled: !!js process.platform === 'win32'
+          - id: tool-pwsh
+            name: '@deepseek-ai/dsh-tool-pwsh'
+            disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+            inject: [strataPaths]
+            config:
+              bundledSkillDir: !!js ctx.strataPaths.bundledSkillsDir
+          - id: skill-office
+            name: '@deepseek-ai/dsh-skill-office'
+            disabled: !!js Boolean(process.versions.electron)
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: planning
+            name: cordis:group
+            group: true
+            isolate:
+              planMode: true
+            config:
+              - id: plan-mode
+                name: '@deepseek-ai/dsh-plan-mode'
+                config:
+                  section: |
+                    You are in plan mode. Stay in plan mode until the user approves your plan through exit_plan_mode or switches the session mode. Explore first with non-mutating reads and searches, resolve user-owned ambiguity through ask_user_question, and submit the complete analysis or specification plan through exit_plan_mode starting with a # title.
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 32768
+                  headChars: 16384
+                  tailChars: 4096
+          - id: delegation
+            name: cordis:group
+            group: true
+            isolate:
+              workflowEngine: true
+            config:
+              - id: tool-subagent-control
+                name: '@deepseek-ai/dsh-tool-subagent-control'
+              - id: tool-subagent-list-agents
+                name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+              - id: tool-subagent
+                name: '@deepseek-ai/dsh-tool-subagent'
+                config:
+                  provider: spawn
+                  toolName: subagent
+                  modelSelectionSettings: true
+              - id: tool-subagent-fork
+                name: '@deepseek-ai/dsh-tool-subagent'
+                config:
+                  provider: fork
+                  toolName: subagent_fork
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+              searchTimeoutMs: 60000
+          - id: present
+            name: '@deepseek-ai/dsh-tool-present'
