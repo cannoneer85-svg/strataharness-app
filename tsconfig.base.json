@@ -101,6 +101,7 @@
       "@deepseek-ai/dsh-cua/bridge": ["./packages/experimental/cua/src/bridge.ts"],
       "@deepseek-ai/dsh-experimental-computer-use-cua-driver-native": ["./packages/experimental/computer-use-cua-driver-native/src/index.ts"],
       "@deepseek-ai/cordis": ["./vendor/cordis/src"],
+      "@strata/product-bundle": ["./packages/strata/product-bundle/src/index.ts"],
       "@deepseek-ai/cosmokit": ["./vendor/cosmokit/src"],
       "@deepseek-ai/schemastery": ["./vendor/schemastery/src"],
       "@deepseek-ai/cordis-plugin-loader": ["./vendor/loader/src"],
