@@ -1,6 +1,6 @@
-DeepSeek Harness
-DeepSeek Harness
-Welcome to DeepSeek Harness
-Build potential. Explore intelligence.
-Sign in
+StrataHarness
+StrataHarness
+Welcome to StrataHarness
+Structured multi-model engineering.
+Configure Models
 Add API Key

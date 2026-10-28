@@ -34,6 +34,18 @@ function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+class RemoteServiceUnavailableError extends Error {
+  constructor() {
+    super('desktop welcome: Web RPC failed')
+  }
+}
+
+function isServiceUnavailableCode(code: unknown): boolean {
+  return code === 'gateway/service-unavailable'
+    || code === 'gateway/definition-unavailable'
+    || code === 'gateway/invocation-unavailable'
+}
+
 /**
  * Authenticate the native HTTP client through the Web application's launch URL.
  * @param authenticatedUrl - URL supplied by the running Desktop Host.
@@ -60,10 +72,19 @@ export async function connectDesktopWelcome(
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ type: 'client-request', rpcId, method, payload: { args: request.args } }),
     })
+    if (response.status === 404) {
+      await response.body?.cancel()
+      throw new RemoteServiceUnavailableError()
+    }
     if (!response.ok) throw new Error('desktop welcome: Web request failed')
     const envelope: unknown = await response.json()
-    if (!record(envelope) || envelope.type !== 'server-response' || envelope.rpcId !== rpcId
-      || !record(envelope.result) || envelope.result.ok !== true) {
+    if (!record(envelope) || envelope.type !== 'server-response' || envelope.rpcId !== rpcId || !record(envelope.result)) {
+      throw new Error('desktop welcome: Web RPC failed')
+    }
+    if (envelope.result.ok !== true) {
+      if (record(envelope.result.error) && isServiceUnavailableCode(envelope.result.error.code)) {
+        throw new RemoteServiceUnavailableError()
+      }
       throw new Error('desktop welcome: Web RPC failed')
     }
     return envelope.result.value
@@ -113,8 +134,14 @@ export async function connectDesktopWelcome(
       Object.assign(states, batch)
     }
     if (ref !== undefined && !record(states[ref])) throw new Error('desktop welcome: missing credential metadata')
+    let loggedIn = false
+    try {
+      loggedIn = (await account.state()).status === 'credential-stored'
+    } catch (error) {
+      if (!(error instanceof RemoteServiceUnavailableError)) throw error
+    }
     return {
-      loggedIn: (await account.state()).status === 'credential-stored',
+      loggedIn,
       hasApiKey: Object.values(states).some(value => record(value) && value.configured === true),
       writable: ref !== undefined && record(states[ref]) && states[ref].writable === true,
       localePreference: localePreference(namespaces),
@@ -124,11 +151,22 @@ export async function connectDesktopWelcome(
     account,
     read,
     async analyticsEnabled() {
-      const enabled = await invoke({ namespace: 'productAnalytics', method: 'enabled', args: {} }, AbortSignal.timeout(1000))
-      if (typeof enabled !== 'boolean') throw new Error('desktop analytics: invalid collection policy')
-      return enabled
+      try {
+        const enabled = await invoke({ namespace: 'productAnalytics', method: 'enabled', args: {} }, AbortSignal.timeout(1000))
+        if (typeof enabled !== 'boolean') throw new Error('desktop analytics: invalid collection policy')
+        return enabled
+      } catch (error) {
+        if (error instanceof RemoteServiceUnavailableError) return false
+        throw error
+      }
     },
-    async report(event) { await invoke({ namespace: 'productAnalytics', method: 'report', args: { event } }, AbortSignal.timeout(1000)) },
+    async report(event) {
+      try {
+        await invoke({ namespace: 'productAnalytics', method: 'report', args: { event } }, AbortSignal.timeout(1000))
+      } catch (error) {
+        if (!(error instanceof RemoteServiceUnavailableError)) throw error
+      }
+    },
     async readLocalePreference() {
       const settings = await invoke({ namespace: 'settings', method: 'describe', args: {} })
       if (!record(settings) || !Array.isArray(settings.namespaces)) throw new Error('desktop welcome: missing settings namespaces')

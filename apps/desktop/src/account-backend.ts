@@ -94,10 +94,26 @@ export function desktopAccountBackend(origin: string, invoke: AccountInvoke, coo
       let closed = false
       let socket: WebSocket | undefined
       let retry: ReturnType<typeof setTimeout> | undefined
+      const isServiceUnavailableCode = (code: unknown): boolean =>
+        code === 'gateway/service-unavailable'
+        || code === 'gateway/definition-unavailable'
+        || code === 'gateway/invocation-unavailable'
       const connect = (): void => {
         const streamId = randomUUID()
         const expiryStreamId = randomUUID()
         const analyticsPolicyStreamId = randomUUID()
+        const liveStreams = new Set<string>([
+          streamId,
+          expiryStreamId,
+          ...(onAnalyticsEnabledChanged === undefined ? [] : [analyticsPolicyStreamId]),
+        ])
+        const retireDisabledStream = (id: string): void => {
+          liveStreams.delete(id)
+          if (liveStreams.size === 0) {
+            closed = true
+            socket?.close()
+          }
+        }
         void cookies().then((cookie) => {
           if (closed) return
           const url = new URL(REMOTE_STREAM_MUX_PATH, origin)
@@ -113,13 +129,27 @@ export function desktopAccountBackend(origin: string, invoke: AccountInvoke, coo
               const bytes = Array.isArray(data) ? Buffer.concat(data) : Buffer.isBuffer(data) ? data : Buffer.from(data)
               const frame = parseRemoteStreamServerMessage(bytes.toString('utf8'))
               if (frame.streamId === analyticsPolicyStreamId) {
-                if (frame.type === 'item' && typeof frame.value === 'boolean') onAnalyticsEnabledChanged?.(frame.value)
-                else onAnalyticsEnabledChanged?.(false)
+                if (frame.type === 'item' && typeof frame.value === 'boolean') {
+                  onAnalyticsEnabledChanged?.(frame.value)
+                } else {
+                  onAnalyticsEnabledChanged?.(false)
+                  if (frame.type === 'error' && isServiceUnavailableCode(frame.error.code)) retireDisabledStream(analyticsPolicyStreamId)
+                }
                 return
               }
-              if (frame.streamId === expiryStreamId && frame.type === 'item' && frame.value === 'session-expired') { expired(); return }
+              if (frame.streamId === expiryStreamId) {
+                if (frame.type === 'item') {
+                  if (frame.value === 'session-expired') expired()
+                } else if (frame.type === 'error' && isServiceUnavailableCode(frame.error.code)) {
+                  retireDisabledStream(expiryStreamId)
+                } else {
+                  socket?.close()
+                }
+                return
+              }
               if (frame.streamId !== streamId) throw new Error('desktop account: unexpected stream')
               if (frame.type === 'item') listener(accountView(frame.value))
+              else if (frame.type === 'error' && isServiceUnavailableCode(frame.error.code)) retireDisabledStream(streamId)
               else socket?.close()
             } catch { socket?.close() }
           })

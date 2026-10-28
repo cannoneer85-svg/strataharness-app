@@ -36,6 +36,7 @@ export const PRODUCT_PACKAGE_POLICY: Readonly<Record<string, ProductPackagePolic
   'packages/context/tmux-context': { category: 'optional', reason: 'Context contribution requiring a tmux pane.' },
   'packages/context/harness-dev-context': { category: 'optional', reason: 'Upstream repository development prompt context disabled in StrataHarness product composition.' },
   'packages/core/agent-tool-presentation': { category: 'optional', reason: 'Per-agent PTC tool-presentation plugin used only when the upstream PTC preset is enabled.' },
+  'packages/client/ui-brand-official': { category: 'optional', reason: 'Upstream official DeepSeek browser branding replaced by @strata/ui-brand in StrataHarness product composition.' },
   'packages/client/ui-settings-account': { category: 'optional', reason: 'Upstream cloud-account settings UI disabled in StrataHarness product composition.' },
   'packages/client/ui-settings-session-log': { category: 'optional', reason: 'Upstream session-log upload settings UI disabled in StrataHarness product composition.' },
   'packages/host/product-telemetry-otel': { category: 'optional', reason: 'Upstream desktop OTel product telemetry disabled in StrataHarness product composition.' },

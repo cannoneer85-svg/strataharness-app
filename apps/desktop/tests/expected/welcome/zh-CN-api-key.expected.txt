@@ -1,8 +1,8 @@
-DeepSeek Harness
-DeepSeek Harness
-添加一个 API Key 开始使用
-配置 DeepSeek 官方模型，即可开始使用
-输入 API 密钥 [password]
+StrataHarness
+StrataHarness
+添加 API Key 或配置模型提供商
+立即保存 DeepSeek API Key，或进入工作区在“设置 → 模型”中配置 OpenAI、Anthropic、Gemini、OpenRouter 及自定义提供商。
+输入 DeepSeek API 密钥 [password]
 保存并继续 [disabled]
-稍后配置
-返回登录
+前往设置配置
+返回

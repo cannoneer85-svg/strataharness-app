@@ -1,6 +1,6 @@
 {
-  "name": "DeepSeek Harness",
-  "short_name": "DSH",
+  "name": "StrataHarness",
+  "short_name": "Strata",
   "start_url": "./",
   "scope": "./",
   "display": "fullscreen",

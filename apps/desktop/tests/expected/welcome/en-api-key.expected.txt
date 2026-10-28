@@ -1,8 +1,8 @@
-DeepSeek Harness
-DeepSeek Harness
-Add an API key to get started
-Configure official DeepSeek models to start using Harness
-Enter API key [password]
+StrataHarness
+StrataHarness
+Add an API key or configure providers
+Save a DeepSeek API key now, or open the workspace to configure OpenAI, Anthropic, Gemini, OpenRouter, and custom providers in Settings → Models.
+Enter DeepSeek API key [password]
 Save and continue [disabled]
-Set up later
-Back to sign in
+Configure in Settings
+Back

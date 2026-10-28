@@ -106,6 +106,44 @@ describe('desktop welcome Web operations', () => {
     expect(JSON.parse(init!.body as string)).toMatchObject({ payload: { args: { event } } })
   })
 
+  it('treats disabled account and product-analytics services as signed-out and off', async () => {
+    const namespaces = [
+      { ns: 'llm-deepseek', value: { apiKeyEnv: 'CUSTOM_DEEPSEEK_KEY' } },
+      { ns: 'llm-pi-ai', value: { profiles: { example: { apiKeyEnv: 'EXAMPLE_API_KEY' } } } },
+      { ns: 'locale', value: { preference: 'en' } },
+    ]
+    const send = vi.fn<Parameters<typeof connectDesktopWelcome>[1]>(async (_input, init) => {
+      if (init?.method !== 'POST') return new Response('index')
+      const { rpcId, method, payload } = JSON.parse(init.body as string) as {
+        rpcId: string
+        method: string
+        payload: { args: { refs: string[] } }
+      }
+      if (method.startsWith('account/') || method.startsWith('productAnalytics/')) {
+        return Response.json({
+          type: 'server-response',
+          rpcId,
+          result: { ok: false, error: { code: 'gateway/service-unavailable', message: 'disabled' } },
+        })
+      }
+      const value = method === 'settings/describe'
+        ? { namespaces }
+        : method === 'llm/listConfigurableProviders'
+          ? [{ settingsNs: 'llm-pi-ai', settingsPath: ['profiles', 'example'] }]
+          : Object.fromEntries(payload.args.refs.map(ref => [ref, { configured: false, writable: true }]))
+      return Response.json({ type: 'server-response', rpcId, result: { ok: true, value } })
+    })
+    const backend = await connectDesktopWelcome(url, send)
+    expect(await backend.analyticsEnabled()).toBe(false)
+    await expect(backend.report({ eventName: 'desktop_app_launch', timestamp: 100, attributes: {} })).resolves.toBeUndefined()
+    expect(await backend.read()).toEqual({
+      loggedIn: false,
+      hasApiKey: false,
+      writable: true,
+      localePreference: 'en',
+    })
+  })
+
   it('refuses an unauthenticated Web launch', async () => {
     const send = vi.fn<Parameters<typeof connectDesktopWelcome>[1]>(async () => new Response(null, { status: 401 }))
     await expect(connectDesktopWelcome(url, send)).rejects.toThrow('Web authentication failed')

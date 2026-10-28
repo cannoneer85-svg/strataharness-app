@@ -1,6 +1,6 @@
-DeepSeek Harness
-DeepSeek Harness
-欢迎使用 DeepSeek Harness
-组装无限可能，共探智能上限
-登录
+StrataHarness
+StrataHarness
+欢迎使用 StrataHarness
+结构化多模型智能工作台
+配置模型提供商
 添加 API Key

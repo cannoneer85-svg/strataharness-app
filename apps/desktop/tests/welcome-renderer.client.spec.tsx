@@ -48,15 +48,38 @@ function mount(language = 'zh-CN', takeNotice = vi.fn<() => Promise<WelcomeNotic
 }
 
 describe('desktop welcome presentation', () => {
-  it.each(['zh-CN', 'en'])('renders the %s entry and API-key step', async (language) => {
+  it.each(['zh-CN', 'en'])('renders the %s multi-provider entry and API-key step', async (language) => {
     const view = mount(language)
     expect(view.document.documentElement.lang).toBe(language)
     expect(view.document.querySelector('img')!.getAttribute('src')).toBe('assets/welcome-brand.svg')
+    expect(view.document.querySelector('#sign-in')).toBeNull()
+    expect(view.document.querySelector('#auth-page')).toBeNull()
     await expect(view.copy()).toMatchFileSnapshot(`./expected/welcome/${language}.expected.txt`)
     fireEvent.click(view.button('#api-key'))
     expect(view.document.activeElement).toBe(view.input)
     expect(view.input.type).toBe('password')
+    expect(view.input.name).toBe('apiKey')
+    expect(view.input.getAttribute('autocorrect')).toBe('off')
+    expect(view.input.getAttribute('autocapitalize')).toBe('off')
     await expect(view.copy()).toMatchFileSnapshot(`./expected/welcome/${language}-api-key.expected.txt`)
+  })
+
+  it('opens the workspace directly from the primary Configure Models action and surfaces failures', async () => {
+    const view = mount('en')
+    const skipped = Promise.withResolvers<undefined>()
+    view.api.skip.mockReturnValueOnce(skipped.promise)
+    fireEvent.click(view.button('#open-workspace'))
+    expect(view.button('#open-workspace').disabled).toBe(true)
+    expect(view.button('#api-key').disabled).toBe(true)
+    fireEvent.click(view.button('#open-workspace'))
+    expect(view.api.skip).toHaveBeenCalledOnce()
+    expect(view.api.startSignIn).not.toHaveBeenCalled()
+    await act(async () => { skipped.resolve(undefined); await skipped.promise })
+    expect(view.button('#open-workspace').disabled).toBe(false)
+
+    view.api.skip.mockRejectedValueOnce(new Error('workspace unavailable'))
+    await act(async () => { fireEvent.click(view.button('#open-workspace')) })
+    expect(screen.getByRole('alert').textContent).toBe(view.api.messages.welcomeContinueFailed)
   })
 
   it('sends one trimmed key, prevents competing actions, and clears it after saving', async () => {
@@ -156,71 +179,6 @@ describe('desktop welcome presentation', () => {
   })
 })
 
-it.each(['zh-CN', 'en'])('renders %s timeout with manual retry and API-key alternative', async (language) => {
-  const view = mount(language)
-  const receive = (state: AccountView) => { act(() => { view.api.onAccountState.mock.calls[0]![0](state) }) }
-  receive({ status: 'signed-out', links: { usageUrl: '', topUpUrl: '' }, attempt: { id: 'expired' as NonNullable<AccountView['attempt']>['id'], phase: 'expired' } })
-  expect(view.button('#auth-retry').hidden).toBe(false)
-  expect(view.button('#auth-api-key').hidden).toBe(false)
-  expect(view.api.startSignIn).not.toHaveBeenCalled()
-  await expect(view.copy() + view.document.querySelector('#auth-description')!.textContent + '\n').toMatchFileSnapshot(`./expected/welcome/${language}-timeout.expected.txt`)
-  fireEvent.click(view.button('#auth-api-key'))
-  expect(view.document.querySelector('#auth-page')!.hasAttribute('hidden')).toBe(true)
-  expect(view.document.querySelector('#key-form')!.hasAttribute('hidden')).toBe(false)
-})
-
-it.each(['zh-CN', 'en'])('renders %s browser fallback and copies only the active login link', async (language) => {
-  const view = mount(language)
-  const receive = (state: AccountView) => { act(() => { view.api.onAccountState.mock.calls[0]![0](state) }) }
-  const waiting: AccountView = { status: 'signed-out', links: { usageUrl: '', topUpUrl: '' },
-    attempt: { id: 'waiting' as NonNullable<AccountView['attempt']>['id'], phase: 'waiting-browser', authorizeUrl: 'https://example.test/login' } }
-  receive(waiting)
-  await expect(view.copy() + view.document.querySelector('#auth-description')!.textContent + '\n')
-    .toMatchFileSnapshot(`./expected/welcome/${language}-waiting.expected.txt`)
-  fireEvent.click(view.button('#auth-copy'))
-  await vi.waitFor(() => { expect(view.button('#auth-copy').textContent).toBe(view.api.messages.welcomeAuthCopied) })
-  expect(view.api.copySignInLink).toHaveBeenCalledWith('waiting')
-  await vi.waitFor(() => { expect(view.button('#auth-copy').disabled).toBe(false) }, { timeout: 3000 })
-  view.api.copySignInLink.mockRejectedValueOnce(new Error('clipboard unavailable'))
-  fireEvent.click(view.button('#auth-copy'))
-  await vi.waitFor(() => { expect(view.button('#auth-copy').textContent).toBe(view.api.messages.welcomeAuthCopyFailed) })
-  expect(view.button('#auth-cancel').disabled).toBe(false)
-  receive({ ...waiting, attempt: { ...waiting.attempt!, phase: 'exchanging' } })
-  expect(view.button('#auth-copy').hidden).toBe(true)
-  expect(view.button('#auth-loading').hidden).toBe(false)
-  receive({ ...waiting, attempt: { ...waiting.attempt!, phase: 'cancelled' } })
-  expect(view.document.querySelector('main')!.classList.contains('waiting-page')).toBe(false)
-})
-
-it('keeps a newer account notification when the start response arrives late', async () => {
-  const view = mount()
-  const started = Promise.withResolvers<AccountView>()
-  view.api.startSignIn.mockReturnValueOnce(started.promise)
-  fireEvent.click(view.button('#sign-in'))
-  expect(view.button('#auth-cancel').disabled).toBe(true)
-  const state: AccountView = { status: 'signed-out', links: { usageUrl: '', topUpUrl: '' },
-    attempt: { id: 'attempt' as NonNullable<AccountView['attempt']>['id'], phase: 'expired' } }
-  act(() => { view.api.onAccountState.mock.calls[0]![0](state) })
-  await act(async () => { started.resolve({ ...state, attempt: { ...state.attempt!, phase: 'waiting-browser' } }); await started.promise })
-  expect(view.document.querySelector('#auth-status')!.textContent).toBe(view.api.messages.welcomeAuthExpired)
-  expect(view.button('#auth-retry').hidden).toBe(false)
-})
-
-it('does not restore a copied-link status after leaving the waiting phase', async () => {
-  const view = mount()
-  const copied = Promise.withResolvers<undefined>()
-  view.api.copySignInLink.mockReturnValueOnce(copied.promise)
-  const waiting: AccountView = { status: 'signed-out', links: { usageUrl: '', topUpUrl: '' },
-    attempt: { id: 'attempt' as NonNullable<AccountView['attempt']>['id'], phase: 'waiting-browser' } }
-  act(() => { view.api.onAccountState.mock.calls[0]![0](waiting) })
-  fireEvent.click(view.button('#auth-copy'))
-  expect(view.button('#auth-copy').disabled).toBe(true)
-  act(() => { view.api.onAccountState.mock.calls[0]![0]({ ...waiting, attempt: { ...waiting.attempt!, phase: 'exchanging' } }) })
-  await act(async () => { copied.resolve(undefined); await copied.promise })
-  expect(view.button('#auth-copy').hidden).toBe(true)
-  expect(view.button('#auth-copy').textContent).toBe(view.api.messages.welcomeAuthCopyLink)
-})
-
 it('keeps the key draft while account notifications arrive and releases the subscription on unmount', () => {
   const view = mount()
   fireEvent.click(view.button('#api-key'))
@@ -231,37 +189,6 @@ it('keeps the key draft while account notifications arrive and releases the subs
   expect(view.input.value).toBe('sk-draft')
   view.unmount()
   expect(view.stopAccount).toHaveBeenCalledOnce()
-})
-
-it.each(['copied', 'failed'] as const)('restores the copy action after %s feedback and cleans up on unmount', async (result) => {
-  vi.useFakeTimers()
-  try {
-    const view = mount('en')
-    if (result === 'failed') view.api.copySignInLink.mockRejectedValue(new Error('clipboard unavailable'))
-    const waiting: AccountView = { status: 'signed-out', links: { usageUrl: '', topUpUrl: '' },
-      attempt: { id: 'waiting' as NonNullable<AccountView['attempt']>['id'], phase: 'waiting-browser' } }
-    act(() => { view.api.onAccountState.mock.calls[0]![0](waiting) })
-    const feedback = result === 'copied' ? view.api.messages.welcomeAuthCopied : view.api.messages.welcomeAuthCopyFailed
-    const copy = async () => { await act(async () => { fireEvent.click(view.button('#auth-copy')) }) }
-    await copy()
-    expect(view.button('#auth-copy').textContent).toBe(feedback)
-    expect(view.button('#auth-copy').disabled).toBe(result === 'copied')
-    await act(async () => { await vi.advanceTimersByTimeAsync(1500) })
-    await copy()
-    expect(view.api.copySignInLink).toHaveBeenCalledTimes(result === 'copied' ? 1 : 2)
-    await act(async () => { await vi.advanceTimersByTimeAsync(result === 'copied' ? 499 : 1999) })
-    expect(view.button('#auth-copy').textContent).toBe(feedback)
-    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
-    expect(view.button('#auth-copy').textContent).toBe(view.api.messages.welcomeAuthCopyLink)
-    expect(view.button('#auth-copy').disabled).toBe(false)
-    await copy()
-    expect(view.api.copySignInLink).toHaveBeenCalledTimes(result === 'copied' ? 2 : 3)
-    view.unmount()
-    expect(vi.getTimerCount()).toBe(0)
-  } finally {
-    cleanup()
-    vi.useRealTimers()
-  }
 })
 
 it.each(['zh-CN', 'en'])('keeps the expiry notice visible after returning to Welcome: %s', async (language) => {
@@ -277,7 +204,7 @@ it.each(['zh-CN', 'en'])('keeps the expiry notice visible after returning to Wel
     const notice = screen.getByRole('alert')
     expect(notice.textContent).toBe(view.api.messages.welcomeSessionExpired)
     await expect(`${notice.textContent}\n`).toMatchFileSnapshot(`./expected/welcome/${language}-expired.expected.txt`)
-    expect(view.button('#sign-in').closest('[hidden]')).toBeNull()
+    expect(view.button('#open-workspace').closest('[hidden]')).toBeNull()
     await act(async () => { await vi.advanceTimersByTimeAsync(4000) })
     expect(screen.queryByRole('alert')).toBeNull()
     await act(async () => { publish(expired) })
@@ -315,29 +242,16 @@ it('ignores a notification received after its renderer unmounts', async () => {
   expect(screen.queryByRole('alert')).toBeNull()
 })
 
-
-it.each(['zh-CN', 'en'])('returns from completed sign-in to the initial page after sign-out: %s', async (language) => {
-  const view = mount(language)
-  const publish = view.api.onAccountState.mock.calls[0]![0]
-  const links = { usageUrl: 'https://example.test/usage', topUpUrl: 'https://example.test/top_up' }
-  act(() => { publish({ status: 'credential-stored', links,
-    attempt: { id: 'completed' as NonNullable<AccountView['attempt']>['id'], phase: 'succeeded' } }) })
-  expect(view.document.querySelector<HTMLElement>('#auth-page')!.hidden).toBe(false)
-  act(() => { publish({ status: 'signed-out', links, attempt: null }) })
-  expect(view.button('#sign-in').closest('[hidden]')).toBeNull()
-  expect(view.document.querySelector<HTMLElement>('#auth-page')!.hidden).toBe(true)
-  await expect(view.copy()).toMatchFileSnapshot(`./expected/welcome/${language}.expected.txt`)
-})
-
-it('reports each return to the welcome entry once, including account cancellation', async () => {
+it('reports each return to the welcome entry and API-key save attempt', () => {
   const view = mount()
   expect(view.api.analytics).not.toHaveBeenCalled()
   fireEvent.click(view.button('#api-key'))
   fireEvent.click(view.button('#back-to-login'))
   expect(view.api.analytics.mock.calls.map(([action]) => action)).toEqual(['auth_page_click', 'auth_page_view'])
-  const pending = Promise.withResolvers<AccountView>()
-  view.api.startSignIn.mockReturnValueOnce(pending.promise)
-  fireEvent.click(view.button('#sign-in'))
-  await act(async () => { pending.resolve({ links: { usageUrl: 'http://localhost/usage', topUpUrl: 'http://localhost/top_up' }, status: 'signed-out', attempt: null }) })
-  expect(view.api.analytics.mock.calls.map(([action]) => action)).toEqual(['auth_page_click', 'auth_page_view', 'auth_page_click', 'auth_page_view'])
+  fireEvent.click(view.button('#api-key'))
+  view.enterKey('sk-valid-key')
+  view.submit()
+  expect(view.api.analytics.mock.calls.map(([action]) => action)).toEqual([
+    'auth_page_click', 'auth_page_view', 'auth_page_click', 'api_key_save_click',
+  ])
 })

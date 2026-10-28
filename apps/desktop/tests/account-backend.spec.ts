@@ -91,3 +91,39 @@ it('receives live expiry separately from account snapshots', async () => {
   await vi.waitFor(() => { expect(expired).toHaveBeenCalledOnce() })
   stop()
 })
+
+it('closes cleanly without reconnecting when account and analytics streams are disabled', async () => {
+  const server = new WebSocketServer({ host: '127.0.0.1', port: 0 })
+  await once(server, 'listening')
+  onTestFinished(async () => {
+    for (const client of server.clients) client.terminate()
+    await new Promise<void>((resolve, reject) => { server.close((error) => { if (error) reject(error); else resolve() }) })
+  })
+  const address = server.address()
+  if (typeof address === 'string' || address === null) throw new Error('missing server address')
+  let connections = 0
+  server.on('connection', (socket) => {
+    connections++
+    socket.on('message', (data) => {
+      if (!Buffer.isBuffer(data)) throw new Error('expected a Buffer WebSocket frame')
+      const frame = JSON.parse(data.toString('utf8')) as { endpoint: string; streamId: string }
+      const code = frame.endpoint.startsWith('account/')
+        ? 'gateway/invocation-unavailable'
+        : 'gateway/service-unavailable'
+      socket.send(JSON.stringify({
+        type: 'error',
+        streamId: frame.streamId,
+        error: { code, message: 'disabled', details: {} },
+      }))
+    })
+  })
+  const failed = vi.fn()
+  const onAnalyticsEnabledChanged = vi.fn()
+  const backend = desktopAccountBackend(`http://127.0.0.1:${address.port}`, () => Promise.resolve({}), () => Promise.resolve(''))
+  const stop = backend.watch(vi.fn(), failed, vi.fn(), onAnalyticsEnabledChanged)
+  onTestFinished(stop)
+  await vi.waitFor(() => { expect(connections).toBe(1) })
+  await vi.waitFor(() => { expect(server.clients.size).toBe(0) })
+  expect(onAnalyticsEnabledChanged).toHaveBeenLastCalledWith(false)
+  expect(failed).not.toHaveBeenCalled()
+})
