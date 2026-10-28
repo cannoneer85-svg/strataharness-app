@@ -13,6 +13,7 @@ it.each(['test', 'production'] as const)('selects the %s policy and authenticati
   expect(policy).toEqual({ origin, allowedPageOrigins: [origin],
     ...(deployment === 'test' ? { allowedAuthOrigins: ['https://login.example.com'] } : {}),
     authentication: deployment === 'test' ? 'feishu-test' : 'anonymous' })
+  if (policy === undefined) throw new Error('expected resolved policy')
   expect(resolveDesktopPolicyConfig(policy)).toMatchObject(policy)
 })
 
@@ -47,14 +48,27 @@ it('rejects login origins in production', () => {
     .toThrow('must not configure allowedAuthOrigins')
 })
 
-it.each([{ unsigned: true }, { prepareOnly: true }, {}])('requires policy outside local macOS builds in %j', (options) => {
+it('omits mandatory update policy when unconfigured and rejects DeepSeek policy origins', () => {
+  expect(resolveDesktopPolicyEnvironment({})).toBeUndefined()
+  expect(resolveDesktopPolicyEnvironment({ DSH_DESKTOP_AUTO_UPDATE_ENV: 'production' })).toBeUndefined()
+  expect(() => resolveDesktopPolicyEnvironment({
+    ...auth,
+    DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN: 'https://policy.deepseek.com',
+  })).toThrow(/DeepSeek policy domain/u)
+  expect(() => resolveDesktopPolicyEnvironment({
+    DSH_DESKTOP_AUTO_UPDATE_ENV: 'production',
+    DSH_DESKTOP_MANDATORY_UPDATE_PROD_ORIGIN: 'https://deepseek.com',
+  })).toThrow(/DeepSeek policy domain/u)
   for (const platform of ['win32', 'darwin'] as const) {
-    if (platform === 'darwin' && options.unsigned) {
-      expect(() => { validateDesktopPackageEnvironment({ DSH_DESKTOP_APP_ID: 'com.example.test' }, { platform, arch: 'x64' }, options) })
-        .not.toThrow()
-      continue
-    }
-    expect(() => { validateDesktopPackageEnvironment({ DSH_DESKTOP_APP_ID: 'com.example.test' }, { platform, arch: 'x64' }, options) })
-      .toThrow('DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN')
+    expect(() => {
+      validateDesktopPackageEnvironment({ DSH_DESKTOP_APP_ID: 'com.nikl.strataharness' }, { platform, arch: 'x64' }, { unsigned: true })
+    }).not.toThrow()
+    expect(() => {
+      validateDesktopPackageEnvironment({
+        DSH_DESKTOP_APP_ID: 'com.nikl.strataharness',
+        DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN: 'https://policy.deepseek.com',
+        ...auth,
+      }, { platform, arch: 'x64' }, { prepareOnly: true })
+    }).toThrow(/DeepSeek policy domain/u)
   }
 })

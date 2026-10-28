@@ -444,8 +444,12 @@ async function main(): Promise<void> {
     () => locale.id === 'zh-CN' ? 'zh_CN' : 'en_US', process.platform === 'win32' ? 'win32' : 'darwin')
   const backend = new DesktopBackendController((onFailure) => {
     const hostInspectPort = developmentHostInspectPort(development)
+    const strataEnvironment = development ? {} : {
+      STRATAHARNESS_ROOT: hostEnvironment.STRATAHARNESS_ROOT ?? join(process.resourcesPath, 'strataharness'),
+      STRATA_DESIGNER_SKILLS_DIR: hostEnvironment.STRATA_DESIGNER_SKILLS_DIR ?? join(process.resourcesPath, 'strata-skills', 'designer'),
+    }
     const host = new DesktopHostProcess(resources.node, resources.dsh, activeProject,
-      hostInspectPort, { ...hostEnvironment, DSH_CLIENT_VERSION: desktopClientVersion() }, onFailure,
+      hostInspectPort, { ...hostEnvironment, ...strataEnvironment, DSH_CLIENT_VERSION: desktopClientVersion() }, onFailure,
       primaryRuntime,
       resources, (next) => { platformView.setSession(next) })
     return {
@@ -932,7 +936,7 @@ async function main(): Promise<void> {
   const applicationIconPath = development ? join(app.getAppPath(), 'resources', 'icon-windows.png')
     : join(process.resourcesPath, 'icon.png')
   app.setAboutPanelOptions({
-    applicationName: 'DeepSeek Harness',
+    applicationName: 'StrataHarness',
     applicationVersion: app.getVersion(),
     // The release has no separate build number; omit Electron's bundle version.
     version: '',
@@ -1232,10 +1236,10 @@ async function main(): Promise<void> {
     window.focus()
   }
 
-  if (app.isPackaged || process.env.DSH_DESKTOP_DEV_APP === '1') app.setAsDefaultProtocolClient('dsh')
+  if (app.isPackaged || process.env.DSH_DESKTOP_DEV_APP === '1') app.setAsDefaultProtocolClient('strata')
   app.on('open-url', (event, url) => {
     event.preventDefault()
-    if (url === 'dsh://open' || url === 'dsh://open/') focusPrimaryWindow()
+    if (url === 'strata://open' || url === 'strata://open/') focusPrimaryWindow()
   })
 
   app.on('activate', (_event, hasVisibleWindows) => {

@@ -1,5 +1,7 @@
 /** Resolve public release identifiers supplied by the packaging environment. */
 
+import { assertIsolatedStrataAppId } from './strata-desktop-config.mjs'
+
 /** Environment variable that supplies the Electron application identifier. */
 export const DESKTOP_APP_ID_ENV = 'DSH_DESKTOP_APP_ID'
 
@@ -65,7 +67,7 @@ export function resolveDesktopAppId(env) {
   if (!/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$/u.test(appId)) {
     throw new Error(`desktop release environment: ${DESKTOP_APP_ID_ENV} must be a reverse-DNS identifier`)
   }
-  return appId
+  return assertIsolatedStrataAppId(appId)
 }
 
 /**

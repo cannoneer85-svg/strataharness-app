@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { STRATA_DESKTOP_APP_ID, STRATA_DESKTOP_PRODUCT_NAME, STRATA_DESKTOP_URL_SCHEME } from './strata-desktop-config.mjs'
 
 /** Workspace and runtime settings captured for Launch Services cold starts. */
 export interface DevelopmentAppOptions {
@@ -36,11 +37,11 @@ export function prepareDevelopmentApp(options: DevelopmentAppOptions): string {
     execFileSync('/usr/bin/ditto', [source, bundle])
     const plist = join(bundle, 'Contents', 'Info.plist')
     const values = {
-      CFBundleIdentifier: `com.deepseek.harness.dev.${createHash('sha256').update(options.appRoot).digest('hex').slice(0, 12)}`,
+      CFBundleIdentifier: `${STRATA_DESKTOP_APP_ID}.dev.${createHash('sha256').update(options.appRoot).digest('hex').slice(0, 12)}`,
       CFBundleName: 'Harness Dev',
       CFBundleDisplayName: 'Harness Dev',
       CFBundleExecutable: 'HarnessDev',
-      CFBundleURLTypes: [{ CFBundleURLName: 'DeepSeek Harness', CFBundleURLSchemes: ['dsh'], CFBundleTypeRole: 'Viewer' }],
+      CFBundleURLTypes: [{ CFBundleURLName: STRATA_DESKTOP_PRODUCT_NAME, CFBundleURLSchemes: [STRATA_DESKTOP_URL_SCHEME], CFBundleTypeRole: 'Viewer' }],
     }
     for (const [key, value] of Object.entries(values)) {
       execFileSync('/usr/bin/plutil', ['-replace', key, '-json', JSON.stringify(value), plist])

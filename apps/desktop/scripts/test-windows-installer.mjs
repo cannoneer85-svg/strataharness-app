@@ -9,6 +9,7 @@ import { promisify } from 'node:util'
 import { createWindowsTokenSigner, installWindowsNsisBootstrapSigner, scrubWindowsSigningEnvironment } from './windows-sign.mjs'
 import { loadDesktopPackageEnvironment } from './desktop-package-environment.mjs'
 import { createPackagingRun } from './packaging-run.mjs'
+import { STRATA_DESKTOP_APP_ID } from './strata-desktop-config.mjs'
 
 if (process.platform !== 'win32' || process.arch !== 'x64') {
   throw new Error('Installer UI checks require an interactive Windows x64 desktop')
@@ -43,7 +44,7 @@ const sign = process.argv.includes('--signed') ? createWindowsTokenSigner({
 let succeeded = false
 try {
   Object.assign(process.env, {
-    DSH_DESKTOP_APP_ID: `com.deepseek.harness.installertest.n${id}`,
+    DSH_DESKTOP_APP_ID: `${STRATA_DESKTOP_APP_ID}.installertest.n${id}`,
     DSH_DESKTOP_TARGET_PLATFORM: 'win32', DSH_DESKTOP_TARGET_ARCH: 'x64',
     DSH_DESKTOP_UNSIGNED: '1', CSC_IDENTITY_AUTO_DISCOVERY: 'false', ELECTRON_BUILDER_7Z_FILTER: 'BCJ',
     DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN: signingEnvironment.DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN

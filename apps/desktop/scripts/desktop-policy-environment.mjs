@@ -1,5 +1,6 @@
-/** Resolve the required policy service from the same deployment as updater publication. */
+/** Resolve optional mandatory-update policy metadata from the same deployment as updater publication. */
 import { resolveDesktopAutoUpdateEnvironment } from './desktop-auto-update-environment.mjs'
+import { assertIsolatedStrataPolicyOrigin } from './strata-desktop-config.mjs'
 
 function origin(value, name) {
   let url
@@ -7,17 +8,23 @@ function origin(value, name) {
   if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
     throw new Error(`desktop package: ${name} requires an HTTPS origin without credentials, path, query, or fragment`)
   }
-  return url.origin
+  return assertIsolatedStrataPolicyOrigin(url, name)
 }
 
 /**
  * Resolve mandatory policy metadata before preparing artifacts or accessing signing hardware.
+ * Returns `undefined` when no policy origin or policy JSON configuration is supplied.
  * @param {NodeJS.ProcessEnv} environment File-owned release settings; the unselected origin is not required.
- * @returns {{ origin: string, allowedPageOrigins: string[], authentication: 'anonymous' | 'feishu-test', [key: string]: unknown }} Selected policy.
+ * @returns {{ origin: string, allowedPageOrigins: string[], authentication: 'anonymous' | 'feishu-test', [key: string]: unknown } | undefined} Selected policy, or `undefined` when mandatory policy is disabled.
  */
 export function resolveDesktopPolicyEnvironment(environment) {
   const deployment = resolveDesktopAutoUpdateEnvironment(environment)
   const name = deployment === 'test' ? 'DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN' : 'DSH_DESKTOP_MANDATORY_UPDATE_PROD_ORIGIN'
+  const rawOrigin = environment[name]?.trim()
+  const rawConfig = environment.DSH_DESKTOP_MANDATORY_UPDATE_CONFIG?.trim()
+  if ((rawOrigin === undefined || rawOrigin === '') && (rawConfig === undefined || rawConfig === '')) {
+    return undefined
+  }
   const selected = origin(environment[name], name)
   let settings = {}
   if (environment.DSH_DESKTOP_MANDATORY_UPDATE_CONFIG !== undefined) {

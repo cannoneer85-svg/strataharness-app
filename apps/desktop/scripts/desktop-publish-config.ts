@@ -2,6 +2,7 @@
 import { readFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { z } from 'zod'
+import { assertIsolatedStrataUpdateOrigin } from './strata-desktop-config.mjs'
 
 const singleLine = z.string().min(1).regex(/^[^\r\n\0]+$/u, 'expected a single-line value')
 const absolutePath = singleLine.refine(isAbsolute, 'expected an absolute path')
@@ -25,8 +26,9 @@ export type DesktopPublishConfig = z.infer<typeof schema>
 export async function readDesktopPublishConfig(configRoot: string, preset: 'test' | 'production'): Promise<DesktopPublishConfig> {
   if (!isAbsolute(configRoot)) throw new Error('desktop publish: configuration root must be absolute')
   const config = schema.parse(JSON.parse(await readFile(join(configRoot, 'publishing', `${preset}.json`), 'utf8')))
-  if (preset === 'production' && (config.origin !== 'https://download.deepseek.com' || !config.githubApp)) {
-    throw new Error('desktop publish: production requires its fixed origin and GitHub App configuration')
+  assertIsolatedStrataUpdateOrigin(new URL(config.origin), 'publishing.origin')
+  if (preset === 'production' && !config.githubApp) {
+    throw new Error('desktop publish: production requires GitHub App configuration')
   }
   return config
 }

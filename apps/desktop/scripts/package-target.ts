@@ -1,7 +1,7 @@
 /** Build one release target with matching Electron and dsh architecture. */
 
 import { spawn } from 'node:child_process'
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
 import { join, resolve } from 'node:path'
 import {
@@ -24,6 +24,7 @@ import { suggestDesktopBuildVersion } from './desktop-build-version-discovery.ts
 import { desktopBuildCommitEnvironment, readDesktopBuildCommit, resolveDesktopBuildCommit } from './desktop-build-commit.mjs'
 import { requireDesktopToolchain } from './desktop-toolchain-preflight.ts'
 import { withMacOSNotarizationProxy } from './macos-notarization-proxy.ts'
+import { STRATA_DESKTOP_PRODUCT_NAME, strataArtifactBaseName } from './strata-desktop-config.mjs'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const REPOSITORY_ROOT = resolve(APP_ROOT, '..', '..')
@@ -343,7 +344,11 @@ async function main(): Promise<void> {
   if (invocation.skipNotarization) {
     process.stdout.write('desktop package: skipping notarization and stapling; internal debugging only, not qualified for distribution or update publishing\n')
   }
-  const environment = target.platform === 'darwin' && invocation.unsigned
+  const localUnsigned = invocation.unsigned
+    || (invocation.check
+      && process.env.DSH_PACKAGING_PRESET === undefined
+      && !existsSync(join(APP_ROOT, target.platform === 'win32' ? '.env.windows' : '.env.macos')))
+  const environment = localUnsigned
     ? localMacOSPackageEnvironment()
     : loadDesktopPackageEnvironment(target.platform, process.env, APP_ROOT, {
       unsigned: invocation.unsigned, prepareOnly: invocation.prepareOnly,
@@ -354,7 +359,7 @@ async function main(): Promise<void> {
   const buildVersion = await resolveRequestedBuildVersion(invocation, productVersion, environment)
   environment[DESKTOP_BUILD_VERSION_ENV] = buildVersion
   if (invocation.check) {
-    validateDesktopPackageEnvironment(environment, target, invocation)
+    validateDesktopPackageEnvironment(environment, target, localUnsigned ? { ...invocation, unsigned: true } : invocation)
     await requireDesktopToolchain(target.platform, environment)
     process.stdout.write(`desktop package: ${target.name} would publish ${buildVersion}; local configuration and toolchain valid, signing and notarization were not attempted\n`)
     return
@@ -401,7 +406,7 @@ async function main(): Promise<void> {
   if (success && target.platform === 'darwin' && !invocation.directory && !invocation.prepareOnly) {
     const paths = desktopTargetBuildPaths(target.name)
     const output = desktopArtifactOutput(paths, invocation)
-    const filename = `deepseek-harness-${buildVersion}-mac-${target.arch}${output.suffix}.dmg`
+    const filename = `${strataArtifactBaseName(buildVersion, `mac-${target.arch}`)}${output.suffix}.dmg`
     console.log(`DMG: ${join(output.directory, filename)}`)
   }
 }
@@ -515,7 +520,7 @@ export async function packageTarget(
   } else if (target.platform === 'darwin' && !invocation.unsigned && !invocation.skipNotarization) {
     await execute([...desktopElectronBuilderArguments(target, true), '--config.mac.notarize=false'], electronBuilderEnv)
     await execute(['exec', 'tsx', 'scripts/smoke-packaged-runtime.ts'], targetEnv)
-    const appPath = join(buildPaths.artifacts, target.arch === 'arm64' ? 'mac-arm64' : 'mac', 'DeepSeek Harness.app')
+    const appPath = join(buildPaths.artifacts, target.arch === 'arm64' ? 'mac-arm64' : 'mac', `${STRATA_DESKTOP_PRODUCT_NAME}.app`)
     await withMacOSNotarizationProxy(mac?.notarizationProxy,
       () => notarizeMacOS({ appPath, ...resolveMacOSNotarizationEnvironment(environment) }), undefined, undefined, proxyEvent)
   } else {

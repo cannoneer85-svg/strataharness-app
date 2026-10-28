@@ -1,6 +1,11 @@
 /** Resolve the Desktop auto-update channel and its Tencent COS destination. */
 
 import { valid } from 'semver'
+import {
+  STRATA_PRODUCTION_UPDATE_FIXED_ORIGIN,
+  STRATA_PRODUCTION_UPDATE_ORIGIN_ENV,
+  assertIsolatedStrataUpdateOrigin,
+} from './strata-desktop-config.mjs'
 
 /** Environment variable that selects the Desktop update deployment. */
 export const DESKTOP_AUTO_UPDATE_ENV = 'DSH_DESKTOP_AUTO_UPDATE_ENV'
@@ -25,8 +30,8 @@ const UPDATE_ENVIRONMENTS = {
     secretKeyEnvName: 'DOWNLOAD_TEST_COS_SECRET_KEY',
   },
   production: {
-    originEnvName: undefined,
-    fixedOrigin: 'https://download.deepseek.com',
+    originEnvName: STRATA_PRODUCTION_UPDATE_ORIGIN_ENV,
+    fixedOrigin: STRATA_PRODUCTION_UPDATE_FIXED_ORIGIN,
     bucketEnvName: 'DOWNLOAD_PROD_COS_BUCKET',
     secretIdEnvName: 'DOWNLOAD_PROD_COS_SECRET_ID',
     secretKeyEnvName: 'DOWNLOAD_PROD_COS_SECRET_KEY',
@@ -129,7 +134,7 @@ function httpsOrigin(value, name) {
     || parsed.hash !== '') {
     throw new Error(`desktop auto-update: ${name} must be an absolute HTTPS origin without a path, credentials, query, or fragment`)
   }
-  return parsed.origin
+  return assertIsolatedStrataUpdateOrigin(parsed, name)
 }
 
 /**

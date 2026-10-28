@@ -108,6 +108,17 @@ describe('release families', () => {
     expect(releaseFamily('dsh').members(root).map(entry => entry.name)).toEqual(['@deepseek-ai/dsh-public'])
   })
 
+  it('includes @strata workspace packages in the dsh release family', () => {
+    const members = releaseFamily('dsh').members(resolve(import.meta.dirname, '../..'))
+
+    expect(members
+      .filter(member => member.directory.startsWith('packages/strata/'))
+      .map(member => member.name)).toEqual([
+      '@strata/product-bundle',
+      '@strata/ui-brand',
+    ])
+  })
+
   it('publishes unlisted experimental packages while retaining private exclusions', () => {
     const root = mkdtempSync(join(tmpdir(), 'dsh-release-experimental-'))
     roots.push(root)

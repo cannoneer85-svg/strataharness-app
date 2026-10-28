@@ -3,8 +3,9 @@ import type { AfterPackContext, BeforePackContext } from 'app-builder-lib'
 /** Electron-builder fields asserted by the Desktop release tests. */
 export interface DesktopElectronBuilderConfig {
   readonly appId: string
+  readonly productName: string
   readonly artifactName: string
-  readonly protocols: readonly [{ readonly name: 'DeepSeek Harness'; readonly schemes: readonly ['dsh'] }]
+  readonly protocols: readonly [{ readonly name: 'StrataHarness'; readonly schemes: readonly ['strata'] }]
   readonly directories: {
     readonly output: string
   }
@@ -18,10 +19,15 @@ export interface DesktopElectronBuilderConfig {
   readonly extraResources: readonly [
     { readonly from: string, readonly to: 'runtime' },
     { readonly from: string, readonly to: 'icon.png' },
+    { readonly from: string, readonly to: 'strataharness', readonly filter: readonly string[] },
+    { readonly from: string, readonly to: 'strata-skills/designer', readonly filter: readonly string[] },
     ...{ readonly from: string, readonly to: 'tray.ico' }[],
   ]
   readonly mac: {
-    readonly extendInfo: { readonly NSMicrophoneUsageDescription: string }
+    readonly extendInfo: {
+      readonly CFBundleLocalizations: readonly ['en', 'zh_CN']
+      readonly NSMicrophoneUsageDescription: string
+    }
     readonly entitlements: string
     readonly entitlementsInherit: string
     readonly identity: string | undefined
@@ -48,7 +54,7 @@ export interface DesktopElectronBuilderConfig {
     readonly perMachine: false
     readonly allowElevation: false
     readonly allowToChangeInstallationDirectory: false
-    readonly installerLanguages: readonly ['en_US', 'zh_CN']
+    readonly installerLanguages: readonly ['en_US', 'ru_RU', 'zh_CN']
   }
   readonly beforeBuild: () => Promise<boolean>
   readonly beforePack: (context: BeforePackContext) => Promise<void>
