@@ -75,7 +75,8 @@
     "@deepseek-ai/dsh-tool-web": "workspace:*",
     "@deepseek-ai/dsh-tool-workflow": "workspace:*",
     "@deepseek-ai/dsh-workflow-ptc": "workspace:*",
-    "@deepseek-ai/schemastery": "workspace:~"
+    "@deepseek-ai/schemastery": "workspace:~",
+    "@strata/ui-brand": "workspace:~"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~"

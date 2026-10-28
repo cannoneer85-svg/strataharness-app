@@ -48,6 +48,11 @@
 - id: harness-dev-context
   disabled: true
 
+# ── Replace upstream official DeepSeek browser branding with @strata/ui-brand ──
+
+- id: ui-brand-official
+  disabled: true
+
 # ── Select StrataHarness as default preset and hide upstream dsh presets ──────
 
 - id: agent-preset-registry
@@ -71,3 +76,5 @@
 - insert:
     - id: strata-paths
       name: '@strata/product-bundle'
+    - id: strata-ui-brand
+      name: '@strata/ui-brand'

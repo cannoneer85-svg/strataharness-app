@@ -28,7 +28,7 @@ The Web and Desktop profile template stacks `@strata/product-bundle` after `@dee
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-[`cordis.patch.yml`](cordis.patch.yml) disables upstream telemetry, cloud-account login, and the four upstream presets, sets `agent-preset-registry` default to `strata`, disables `includeHarnessIdentity` on `system-prompt`, and mounts `strata-paths`. The four files under `presets/` compose `strata`, `strata-developer`, `strata-analyst`, and `strata-designer` with `thresholdChars: 32768` on `tool-result-pruner` so full `SKILL.md` bodies remain unpruned.
+[`cordis.patch.yml`](cordis.patch.yml) disables upstream telemetry, cloud-account login, `ui-brand-official`, and the four upstream presets, sets `agent-preset-registry` default to `strata`, disables `includeHarnessIdentity` on `system-prompt`, and mounts `strata-paths` alongside `@strata/ui-brand`. The four files under `presets/` compose `strata`, `strata-developer`, `strata-analyst`, and `strata-designer` with `thresholdChars: 32768` on `tool-result-pruner` so full `SKILL.md` bodies remain unpruned.
 
 -----
 
