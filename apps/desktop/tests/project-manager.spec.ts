@@ -329,4 +329,34 @@ describe('desktop link-backend projections', () => {
     expect(lstatSync(join(profile, 'node_modules', 'bridge'), { throwIfNoEntry: false })).toBeUndefined()
     expect(existsSync(join(target, 'package.json'))).toBe(true)
   })
+
+  it('inserts @strata/product-bundle into an existing unbranded Desktop profile while preserving user plugins', async () => {
+    const { manager } = setup()
+    mkdirSync(manager.paths.profile, { recursive: true })
+    const manifestPath = join(manager.paths.profile, 'package.json')
+    writeFileSync(manifestPath, `${JSON.stringify({
+      name: 'dsh-profile-desktop',
+      private: true,
+      dependencies: { 'custom-plugin': '1.0.0' },
+      dsh: {
+        profile: {
+          bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'custom-plugin'],
+        },
+      },
+    }, null, 2)}\n`)
+
+    await manager.applyRelease()
+
+    const updated = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      dependencies: Record<string, string>
+      dsh: { profile: { bundles: string[] } }
+    }
+    expect(updated.dependencies).toEqual({ 'custom-plugin': '1.0.0' })
+    expect(updated.dsh.profile.bundles).toEqual([
+      '@deepseek-ai/dsh-base',
+      '@deepseek-ai/dsh-web-app',
+      '@strata/product-bundle',
+      'custom-plugin',
+    ])
+  })
 })

@@ -29,6 +29,8 @@ import {
 const PROJECT_NAME = '@deepseek-ai/dsh-desktop-runtime'
 const DSH_PACKAGE = '@deepseek-ai/dsh'
 const CORE_BUILD_PACKAGE = '@deepseek-ai/dsh-subprocess-local'
+const WEB_APP_BUNDLE = '@deepseek-ai/dsh-web-app'
+const STRATA_PRODUCT_BUNDLE = '@strata/product-bundle'
 const WEB_PROFILE = PROFILE_TEMPLATES.web as ProfileTemplate
 const WORKSPACE_SETTINGS = 'nodeLinker: hoisted\nautoInstallPeers: false\n'
 function writeJson(path: string, value: unknown): void {
@@ -170,7 +172,38 @@ export function createDevelopmentProjectMetadata(projectDir: string, release: De
   writeFileSync(join(projectDir, 'pnpm-workspace.yaml'), workspaceFile(), { mode: 0o600 })
 }
 
-/** Create the first external plugin profile without running a package manager. */
+/** Create the first external plugin profile without running a package manager, and upgrade legacy unbranded Desktop profiles. */
 export function createPluginProfile(projectDir: string): void {
   initProfile(projectDir, WEB_PROFILE.bundles)
+  const manifestPath = join(projectDir, 'package.json')
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(manifestPath, 'utf8'))
+  } catch (_syntaxOrReadError) {
+    // Invalid or unreadable JSON stays untouched so load and recovery diagnostics report the original file.
+    return
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return
+  const record = parsed as Record<string, unknown>
+  const dsh = record.dsh
+  if (typeof dsh !== 'object' || dsh === null || Array.isArray(dsh)) return
+  const profile = (dsh as Record<string, unknown>).profile
+  if (typeof profile !== 'object' || profile === null || Array.isArray(profile)) return
+  const bundles = (profile as Record<string, unknown>).bundles
+  if (!Array.isArray(bundles) || !bundles.every((entry): entry is string => typeof entry === 'string')) return
+  if (bundles.includes(STRATA_PRODUCT_BUNDLE)) return
+  const webAppIndex = bundles.indexOf(WEB_APP_BUNDLE)
+  if (webAppIndex === -1) return
+  const nextBundles = [...bundles]
+  nextBundles.splice(webAppIndex + 1, 0, STRATA_PRODUCT_BUNDLE)
+  writeJson(manifestPath, {
+    ...record,
+    dsh: {
+      ...(dsh as Record<string, unknown>),
+      profile: {
+        ...(profile as Record<string, unknown>),
+        bundles: nextBundles,
+      },
+    },
+  })
 }
