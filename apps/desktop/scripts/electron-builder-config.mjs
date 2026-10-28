@@ -34,6 +34,7 @@ import {
   writeMacOSAppUpdateConfig,
 } from './macos-app-update-config.mjs'
 import {
+  STRATA_DESKTOP_PACKAGE_NAME,
   STRATA_DESKTOP_PRODUCT_NAME,
   STRATA_DESKTOP_PROTOCOLS,
   STRATA_MACOS_MICROPHONE_USAGE,
@@ -115,6 +116,7 @@ export function createElectronBuilderConfig(
     appId,
     protocols: STRATA_DESKTOP_PROTOCOLS,
     extraMetadata: {
+      name: STRATA_DESKTOP_PACKAGE_NAME,
       dshDesktopAppId: appId,
       dshDesktopUpdateChannel: update?.channel ?? 'nightly',
       ...(policy === undefined ? {} : { dshMandatoryUpdatePolicy: policy }),

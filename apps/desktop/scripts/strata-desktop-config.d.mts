@@ -3,6 +3,9 @@
 /** Shipped desktop product name across Electron menus, dialogs, bundles, and installers. */
 export const STRATA_DESKTOP_PRODUCT_NAME: 'StrataHarness'
 
+/** Packaged manifest name isolating Electron userData and single-instance lock from `@deepseek-ai/dsh-desktop`. */
+export const STRATA_DESKTOP_PACKAGE_NAME: '@strata/desktop'
+
 /** Reverse-DNS application identifier shared by Windows and macOS targets. */
 export const STRATA_DESKTOP_APP_ID: 'com.nikl.strataharness'
 
