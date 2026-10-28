@@ -5,7 +5,7 @@
  * @module @strata/product-bundle
  */
 
-import { existsSync, statSync } from 'node:fs'
+import { statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Context, Service } from '@deepseek-ai/cordis'
@@ -38,7 +38,19 @@ function resolvePackageDir(): string {
   return resolve(dirname(fileURLToPath(import.meta.url)), '..')
 }
 
-function resolveStrataHarnessRoot(packageDir: string, explicitRoot?: string): string {
+function hasBundledSkills(candidateRoot: string): boolean {
+  return isDirectory(join(candidateRoot, '.agents', 'skills'))
+}
+
+/**
+ * Resolve the StrataHarness methodology root across explicit overrides, Electron
+ * packaged `extraResources`, `ELECTRON_RUN_AS_NODE` child hosts inside `app.asar`,
+ * prepared `.desktop-build` runtime trees, and source workspace checkouts.
+ * @param packageDir - Resolved directory of `@strata/product-bundle`.
+ * @param explicitRoot - Optional configuration override from `StrataPathsConfig`.
+ * @returns Absolute path to the StrataHarness root directory.
+ */
+export function resolveStrataHarnessRoot(packageDir: string, explicitRoot?: string): string {
   const configured = explicitRoot?.trim() || process.env.STRATAHARNESS_ROOT?.trim()
   if (configured !== undefined && configured.length > 0) {
     return resolve(configured)
@@ -47,19 +59,62 @@ function resolveStrataHarnessRoot(packageDir: string, explicitRoot?: string): st
   const electronProcess = process as NodeJS.Process & { readonly resourcesPath?: string }
   if (typeof electronProcess.resourcesPath === 'string' && electronProcess.resourcesPath.length > 0) {
     const packagedCandidate = resolve(electronProcess.resourcesPath, 'strataharness')
-    if (existsSync(join(packagedCandidate, '.agents', 'skills'))) {
+    if (hasBundledSkills(packagedCandidate)) {
       return packagedCandidate
     }
+  }
+
+  let current = resolve(packageDir)
+  for (;;) {
+    const packagedSibling = join(current, 'strataharness')
+    if (hasBundledSkills(packagedSibling)) {
+      return packagedSibling
+    }
+    const workspaceResource = join(current, 'resources', 'strataharness')
+    if (hasBundledSkills(workspaceResource)) {
+      return workspaceResource
+    }
+    const parent = dirname(current)
+    if (parent === current) break
+    current = parent
   }
 
   return resolve(packageDir, '..', '..', '..', 'resources', 'strataharness')
 }
 
-function resolveDesignerSkillsDir(packageDir: string, explicitDir?: string): string {
-  const configured = explicitDir?.trim()
+/**
+ * Resolve the role-specific designer skills directory across explicit overrides,
+ * packaged Electron `extraResources/strata-skills/designer`, and the package's
+ * own `skills/designer` directory.
+ * @param packageDir - Resolved directory of `@strata/product-bundle`.
+ * @param explicitDir - Optional configuration override from `StrataPathsConfig`.
+ * @returns Absolute path to the designer skills directory.
+ */
+export function resolveDesignerSkillsDir(packageDir: string, explicitDir?: string): string {
+  const configured = explicitDir?.trim() || process.env.STRATA_DESIGNER_SKILLS_DIR?.trim()
   if (configured !== undefined && configured.length > 0) {
     return resolve(configured)
   }
+
+  const electronProcess = process as NodeJS.Process & { readonly resourcesPath?: string }
+  if (typeof electronProcess.resourcesPath === 'string' && electronProcess.resourcesPath.length > 0) {
+    const packagedCandidate = resolve(electronProcess.resourcesPath, 'strata-skills', 'designer')
+    if (isDirectory(packagedCandidate)) {
+      return packagedCandidate
+    }
+  }
+
+  let current = resolve(packageDir)
+  for (;;) {
+    const packagedDesigner = join(current, 'strata-skills', 'designer')
+    if (isDirectory(packagedDesigner)) {
+      return packagedDesigner
+    }
+    const parent = dirname(current)
+    if (parent === current) break
+    current = parent
+  }
+
   return resolve(packageDir, 'skills', 'designer')
 }
 

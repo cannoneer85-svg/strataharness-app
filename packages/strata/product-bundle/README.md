@@ -21,7 +21,7 @@ kind: "package-bundle"
 <a id="use-this-package"></a>
 ## Use this package
 
-The Web and Desktop profile template stacks `@strata/product-bundle` after `@deepseek-ai/dsh-web-app`. At startup, `StrataPaths` resolves `STRATAHARNESS_ROOT`, Electron `process.resourcesPath/strataharness`, or the repository `resources/strataharness` submodule and fails loud if `<root>/.agents/skills` is absent.
+The Web and Desktop profile template stacks `@strata/product-bundle` after `@deepseek-ai/dsh-web-app`. At startup, `StrataPaths` resolves `STRATAHARNESS_ROOT`, Electron `process.resourcesPath/strataharness`, ancestor `strataharness` or `resources/strataharness` directories (covering `ELECTRON_RUN_AS_NODE` child hosts inside `app.asar` and prepared `.desktop-build` runtime trees), and fails loud if `<root>/.agents/skills` is absent.
 
 -----
 
@@ -45,4 +45,14 @@ Each preset's system prompt and tool catalog remain static for the lifetime of a
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- Packaged Electron builds must copy `resources/strataharness` into `extraResources/strataharness` (configured in Phase 3).
+- Custom role skills added at runtime under `skills/designer` require restarting or reloading the session when filesystem watching is disabled.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+None.
+
+</details>

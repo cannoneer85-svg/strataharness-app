@@ -14,6 +14,7 @@ kind: "package-reference"
 - [Use this package](#use-this-package)
 - [Understand the implementation](#understand-the-implementation)
 - [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 
 -----
 
@@ -39,3 +40,19 @@ None, as the package contributes browser presentation only; nothing here reaches
 #### KV Cache effect
 
 None; this package neither assembles nor sends a provider request.
+
+## Known Limitations and Deferred Work
+
+<a id="known-limitations-and-deferred-work"></a>
+
+- Brand marks render fixed StrataHarness vector geometry and do not support user-supplied runtime SVG overrides.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+None.
+
+</details>
