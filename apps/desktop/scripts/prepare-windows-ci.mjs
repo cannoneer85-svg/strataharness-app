@@ -1,15 +1,19 @@
 /** Resolve a manual Windows build version and validate the selected machine preset. */
-import { appendFileSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { appendFileSync, existsSync, readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { desktopCiVersion as windowsCiVersion } from './desktop-ci-version.mjs'
 export { desktopCiVersion as windowsCiVersion } from './desktop-ci-version.mjs'
 import { loadDesktopPackageEnvironment, validateDesktopPackageEnvironment } from './desktop-package-environment.mjs'
+import { STRATA_PRODUCT_MANIFEST_FILENAME, resolveStrataProductVersion } from './strata-desktop-config.mjs'
 
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === import.meta.filename) {
   const appRoot = resolve(import.meta.dirname, '..')
-  const product = JSON.parse(readFileSync(resolve(appRoot, 'package.json'), 'utf8'))
-  const version = windowsCiVersion(process.env, product.version)
+  const repositoryRoot = resolve(appRoot, '..', '..')
+  const productVersion = existsSync(join(repositoryRoot, STRATA_PRODUCT_MANIFEST_FILENAME))
+    ? resolveStrataProductVersion(process.env, repositoryRoot)
+    : JSON.parse(readFileSync(resolve(appRoot, 'package.json'), 'utf8')).version
+  const version = windowsCiVersion(process.env, productVersion)
   const mode = process.env.PACKAGE_SIGNING
   if (mode !== 'unsigned' && mode !== 'signed') throw new Error('Select unsigned or signed packaging')
   if (!process.env.DSH_PACKAGING_PRESET) throw new Error('Select a machine preset')

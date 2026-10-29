@@ -49,6 +49,7 @@ const harness = await vi.hoisted(async () => {
   let quitCompleted = deferred()
   let policyBlocked = deferred()
   let embeddedPolicy: unknown
+  let embeddedEngineVersion: string | undefined
   let closeWindowsOnQuit = false
   let updateState: DesktopUpdateState = { phase: 'idle' }
   let platformDisposeDeferred: ReturnType<typeof deferred> | undefined
@@ -229,6 +230,8 @@ const harness = await vi.hoisted(async () => {
     get policyBlocked() { return policyBlocked },
     get embeddedPolicy() { return embeddedPolicy },
     set embeddedPolicy(value: unknown) { embeddedPolicy = value },
+    get embeddedEngineVersion() { return embeddedEngineVersion },
+    set embeddedEngineVersion(value: string | undefined) { embeddedEngineVersion = value },
     nextNavigation() { navigated = deferred(); return navigated.promise },
     nextHostStart() { hostStarted = deferred(); return hostStarted.promise },
     deferPlatformDispose() { platformDisposeDeferred = deferred(); return platformDisposeDeferred },
@@ -259,6 +262,7 @@ const harness = await vi.hoisted(async () => {
       navigated = deferred(); dialogShown = deferred(); quitCompleted = deferred()
       policyBlocked = deferred()
       embeddedPolicy = undefined
+      embeddedEngineVersion = undefined
       platformDisposeDeferred = undefined
       platformCloseDeferred = undefined
     },
@@ -307,7 +311,11 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   const original = await importOriginal<typeof import('node:fs/promises')>()
   return { ...original, readFile: vi.fn((path: Parameters<typeof original.readFile>[0], encoding?: 'utf8') => {
     if (path === join('desktop-test-app', 'package.json')) {
-      return Promise.resolve(JSON.stringify({ dshDesktopAppId: 'com.deepseek.dsh', dshMandatoryUpdatePolicy: harness.embeddedPolicy }))
+      return Promise.resolve(JSON.stringify({
+        dshDesktopAppId: 'com.deepseek.dsh',
+        dshMandatoryUpdatePolicy: harness.embeddedPolicy,
+        ...(harness.embeddedEngineVersion === undefined ? {} : { dshEngineVersion: harness.embeddedEngineVersion }),
+      }))
     }
     return encoding === undefined ? original.readFile(path) : original.readFile(path, encoding)
   }) }
@@ -563,6 +571,30 @@ describe('desktop main startup', () => {
     ;(about!.click as () => void)()
     await vi.advanceTimersByTimeAsync(0)
     expect(console.error).toHaveBeenLastCalledWith(expect.objectContaining({ message: 'overlay unavailable' }))
+  })
+
+  it.each(['en-US', 'zh-CN'] as const)('displays both StrataHarness product version and DSH engine version in About when dshEngineVersion is sealed (%s)', async (locale) => {
+    vi.stubGlobal('process', { ...process, platform: 'win32' })
+    harness.app.isPackaged = true
+    harness.embeddedEngineVersion = '0.2.1-rc.4'
+    vi.spyOn(harness.app, 'getLocale').mockReturnValue(locale)
+    vi.spyOn(harness.app, 'getPreferredSystemLanguages').mockReturnValue([locale])
+    await readyForUpdate()
+    expect(harness.app.setAboutPanelOptions).toHaveBeenCalledWith(expect.objectContaining({
+      applicationName: 'StrataHarness',
+      applicationVersion: '1.0.0',
+      version: 'DSH 0.2.1-rc.4',
+    }))
+    const [about] = applicationMenuItems()
+    harness.dialog.showMessageBox.mockResolvedValueOnce({ response: 0 })
+    ;(about!.click as () => void)()
+    await vi.advanceTimersByTimeAsync(0)
+    const zhLocale = locale === 'zh-CN'
+    expect(harness.dialog.showMessageBox).toHaveBeenLastCalledWith(expect.objectContaining({
+      title: zhLocale ? '关于 StrataHarness' : 'About StrataHarness',
+      message: 'StrataHarness',
+      detail: zhLocale ? '版本 V1.0.0\n引擎：DSH 0.2.1-rc.4' : 'Version V1.0.0\nEngine: DSH 0.2.1-rc.4',
+    }))
   })
 
   it.each(['missing-file', 'missing-field', 'disabled'] as const)('suppresses every test auth dialog for %s while continuing update checks', async (configuration) => {

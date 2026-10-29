@@ -47,7 +47,26 @@ export async function createUpdateServer() {
           path: 'payload.exe', sha512, releaseDate: '2026-09-10T00:00:00.000Z' }))
         return
       }
-      if (path !== '/payload.exe' || selectedMode === 'download-404') { response.writeHead(404).end(); return }
+      const strataFeedPrefix = '/strataharness/feeds/win-x64'
+      const strataExeName = `strataharness-${version}-win-x64.exe`
+      if (path === `${strataFeedPrefix}/latest.yml`) {
+        if (selectedMode === 'feed-stall') return
+        if (selectedMode === 'feed-404') { response.writeHead(404).end(); return }
+        if (selectedMode === 'feed-408') { response.writeHead(408).end(); return }
+        if (selectedMode === 'invalid-yaml') { response.end('files: ['); return }
+        if (selectedMode === 'hold-check') { arrived.resolve(); await selectedGate.promise }
+        response.setHeader('Content-Type', 'application/yaml')
+        response.end(dump({
+          version,
+          files: [{ url: `${origin}${strataFeedPrefix}/${strataExeName}`, size: payload.length, sha512 }],
+          path: strataExeName,
+          sha512,
+          releaseDate: '2026-10-29T00:00:00.000Z',
+        }))
+        return
+      }
+      const isBinaryPayload = path === '/payload.exe' || path === `${strataFeedPrefix}/${strataExeName}`
+      if (!isBinaryPayload || selectedMode === 'download-404') { response.writeHead(404).end(); return }
       response.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': payload.length })
       if (selectedMode === 'download-stall') { response.write(payload.subarray(0, 1024)); return }
       if (selectedMode === 'corrupt') { response.end(Buffer.alloc(payload.length, 0x21)); return }
@@ -70,7 +89,7 @@ export async function createUpdateServer() {
   await listening
   origin = `http://127.0.0.1:${server.address().port}`
   return {
-    url: `${origin}/`, payload, requests, failures,
+    origin, url: `${origin}/`, payload, requests, failures,
     policy(next) { policyMode = next },
     select(nextMode, nextVersion = '1.0.1-nightly.1') {
       gate.resolve()

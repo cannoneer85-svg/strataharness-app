@@ -5,7 +5,12 @@ import { access, lstat, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
-import { createWindowsTokenSigner, scrubWindowsSigningEnvironment } from './windows-sign.mjs'
+import {
+  createWindowsPfxSigner,
+  createWindowsTokenSigner,
+  resolveWindowsPfxSignTool,
+  scrubWindowsSigningEnvironment,
+} from './windows-sign.mjs'
 import { inspectWindowsRuntimeSignature, type WindowsRuntimeSignature } from './windows-runtime-signature.mjs'
 import { failPackagingRun, recordPackagingEvent } from './packaging-run.mjs'
 
@@ -35,14 +40,22 @@ async function compileProbe(compiler: string, source: string, output: string, en
 export async function preflightWindowsSigning(options: SigningPreflightOptions): Promise<void> {
   const { environment, runDirectory } = options
   const record = (event: object): void => { recordPackagingEvent(runDirectory, event) }
-  const signer = createWindowsTokenSigner({
-    certificateFile: environment.DSH_DESKTOP_WINDOWS_CER_FILE,
-    signTool: environment.DSH_DESKTOP_WINDOWS_SIGNTOOL,
-    keyContainer: environment.DSH_DESKTOP_WINDOWS_KEY_CONTAINER,
-    tokenPin: environment.DSH_DESKTOP_WINDOWS_TOKEN_PIN,
-    runDirectory,
-    stateDirectory: options.stateDirectory,
-  })
+  const usePfx = Boolean(environment.WIN_CSC_LINK?.trim())
+  const signer = usePfx
+    ? createWindowsPfxSigner({
+      pfxLink: environment.WIN_CSC_LINK,
+      pfxPassword: environment.WIN_CSC_KEY_PASSWORD,
+      signTool: environment.DSH_DESKTOP_WINDOWS_SIGNTOOL,
+      environment,
+    })
+    : createWindowsTokenSigner({
+      certificateFile: environment.DSH_DESKTOP_WINDOWS_CER_FILE,
+      signTool: environment.DSH_DESKTOP_WINDOWS_SIGNTOOL,
+      keyContainer: environment.DSH_DESKTOP_WINDOWS_KEY_CONTAINER,
+      tokenPin: environment.DSH_DESKTOP_WINDOWS_TOKEN_PIN,
+      runDirectory,
+      stateDirectory: options.stateDirectory,
+    })
   const state = options.stateDirectory ?? join(homedir(), '.dsh-desktop-signing')
   const lock = join(state, 'attempt.json')
   const compiler = join(environment.SystemRoot ?? 'C:\\Windows', 'Microsoft.NET/Framework64/v4.0.30319/csc.exe')
@@ -56,28 +69,42 @@ export async function preflightWindowsSigning(options: SigningPreflightOptions):
     throw new Error(`Windows signing preflight refused: inspect retained failure or interlock at ${path}; no automatic recovery`)
   }
   if (!(await lstat(compiler)).isFile()) throw new Error('Windows signing preflight requires the local .NET Framework C# compiler')
-  const certificate = await readFile(environment.DSH_DESKTOP_WINDOWS_CER_FILE!)
-  const leaf = new X509Certificate(certificate)
-  if (Date.now() < Date.parse(leaf.validFrom) || Date.now() > Date.parse(leaf.validTo)) {
-    throw new Error('Windows signing preflight requires a currently valid public certificate')
+  let thumbprint: string | undefined
+  let certificateSha256: string | undefined
+  if (!usePfx || environment.DSH_DESKTOP_WINDOWS_CER_FILE?.trim()) {
+    const certificate = await readFile(environment.DSH_DESKTOP_WINDOWS_CER_FILE!)
+    const leaf = new X509Certificate(certificate)
+    if (Date.now() < Date.parse(leaf.validFrom) || Date.now() > Date.parse(leaf.validTo)) {
+      throw new Error('Windows signing preflight requires a currently valid public certificate')
+    }
+    thumbprint = leaf.fingerprint.replaceAll(':', '')
+    certificateSha256 = createHash('sha256').update(certificate).digest('hex')
   }
-  const thumbprint = leaf.fingerprint.replaceAll(':', '')
+  const resolvedSignTool = usePfx
+    ? resolveWindowsPfxSignTool(environment.DSH_DESKTOP_WINDOWS_SIGNTOOL, environment)
+    : environment.DSH_DESKTOP_WINDOWS_SIGNTOOL!
   const directory = join(runDirectory, 'signing-preflight')
   await mkdir(directory)
   const source = join(directory, 'probe.cs')
   const output = join(directory, 'probe.exe')
   await writeFile(source, PROBE_SOURCE, { flag: 'wx', flush: true })
-  record({ type: 'signing-preflight-static', compiler,
+  record({
+    type: 'signing-preflight-static',
+    compiler,
     compilerSha256: createHash('sha256').update(await readFile(compiler)).digest('hex'),
-    signToolSha256: createHash('sha256').update(await readFile(environment.DSH_DESKTOP_WINDOWS_SIGNTOOL!)).digest('hex'),
-    certificateSha256: createHash('sha256').update(certificate).digest('hex') })
+    signToolSha256: createHash('sha256').update(await readFile(resolvedSignTool)).digest('hex'),
+    ...(certificateSha256 === undefined ? {} : { certificateSha256 }),
+  })
   await (options.compile ?? compileProbe)(compiler, source, output, environment)
   const inspect = options.inspect ?? inspectWindowsRuntimeSignature
   if ((await inspect(output)).status !== 'NotSigned') throw new Error('Windows signing preflight requires a new unsigned probe')
   record({ type: 'signing-preflight-probe', path: output, sha256: createHash('sha256').update(await readFile(output)).digest('hex') })
   await (options.sign ?? signer)({ path: output, hash: 'sha256', isNest: false })
   const signature = await inspect(output)
-  if (signature.status !== 'Valid' || !signature.timestamped || signature.thumbprint?.toUpperCase() !== thumbprint.toUpperCase()) {
+  const thumbprintMatches = thumbprint !== undefined
+    ? signature.thumbprint?.toUpperCase() === thumbprint.toUpperCase()
+    : Boolean(signature.thumbprint)
+  if (signature.status !== 'Valid' || !signature.timestamped || !thumbprintMatches) {
     throw new Error('Windows signing preflight verification failed: expected the configured certificate and a valid timestamp')
   }
   record({ type: 'signing-preflight-success', ...signature,

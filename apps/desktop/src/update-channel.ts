@@ -15,3 +15,25 @@ export function desktopUpdateChannel(manifest: unknown): DesktopUpdateChannel {
   if (channel !== 'nightly' && channel !== 'latest') throw new Error('desktop update: invalid packaged channel')
   return channel
 }
+
+/**
+ * Read the bundled DSH engine version sealed into the installed application manifest.
+ * Unpackaged development checkouts without `dshEngineVersion` fall back to `manifest.version`.
+ * @param manifest - Parsed application manifest.
+ * @returns Validated DSH engine version, or `undefined` when neither field is present.
+ */
+export function desktopEngineVersion(manifest: unknown): string | undefined {
+  if (typeof manifest !== 'object' || manifest === null || Array.isArray(manifest)) {
+    throw new Error('desktop update: invalid application manifest')
+  }
+  if ('dshEngineVersion' in manifest && manifest.dshEngineVersion !== undefined) {
+    if (typeof manifest.dshEngineVersion !== 'string' || manifest.dshEngineVersion === '') {
+      throw new Error('desktop update: invalid packaged dshEngineVersion')
+    }
+    return manifest.dshEngineVersion
+  }
+  if ('version' in manifest && typeof manifest.version === 'string' && manifest.version !== '') {
+    return manifest.version
+  }
+  return undefined
+}

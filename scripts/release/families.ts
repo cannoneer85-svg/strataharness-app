@@ -332,8 +332,13 @@ export abstract class ReleaseFamily {
    * Check the identity in the packed manifest before publishing its bytes.
    * @param member - Source member selected for this release.
    * @param manifest - Manifest read from its packed tarball.
+   * @param _members - Optional complete release member set for cross-track dependency checks.
    */
-  validatePackedManifest(member: ReleaseMember, manifest: Readonly<Record<string, unknown>>): void {
+  validatePackedManifest(
+    member: ReleaseMember,
+    manifest: Readonly<Record<string, unknown>>,
+    _members?: readonly ReleaseMember[],
+  ): void {
     if (manifest.name !== member.name || manifest.version !== member.version) {
       throw new Error(`${member.name}: packed identity must match ${member.name}@${member.version}`)
     }
@@ -346,7 +351,7 @@ export abstract class ReleaseFamily {
   abstract readonly installedEntry: InstalledEntry | undefined
 }
 
-/** Release packages and apps: one shared version across the whole family. */
+/** Release packages and apps: one shared engine version across DSH members, and one shared product version across `@strata/*` members. */
 class DshFamily extends ReleaseFamily {
   readonly id = 'dsh'
   readonly patterns = [
@@ -361,23 +366,37 @@ class DshFamily extends ReleaseFamily {
   }
 
   /**
-   * Require one version across the family, the way a single tag can name it.
+   * Require one shared engine version across `@deepseek-ai/*` members and one
+   * shared publishable product version across `@strata/*` members.
    * @param members - this family's members.
    */
   verifyVersions(members: readonly ReleaseMember[]): void {
-    const versions = new Set(members.map(member => member.version))
-    if (versions.size !== 1) {
-      const detail = members.map(member => `${member.directory}: ${member.version}`).join('\n')
+    const dshMembers = members.filter(member => !member.name.startsWith('@strata/'))
+    const dshVersions = new Set(dshMembers.map(member => member.version))
+    if (dshMembers.length > 0 && dshVersions.size !== 1) {
+      const detail = dshMembers.map(member => `${member.directory}: ${member.version}`).join('\n')
       throw new Error(`dsh release members must share one version:\n${detail}`)
+    }
+    const strataMembers = members.filter(member => member.name.startsWith('@strata/'))
+    for (const member of strataMembers) {
+      if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(member.version)) {
+        throw new Error(`${member.directory} has an unpublishable version: ${member.version}`)
+      }
+    }
+    const strataVersions = new Set(strataMembers.map(member => member.version))
+    if (strataMembers.length > 0 && strataVersions.size !== 1) {
+      const detail = strataMembers.map(member => `${member.directory}: ${member.version}`).join('\n')
+      throw new Error(`strata release members must share one version:\n${detail}`)
     }
   }
 
   /**
-   * The single family prefix: every member shares one version, so one tag names it.
-   * @returns `dsh-v`.
+   * The tag prefix for a member: `strata-v` for `@strata/*` product packages and `dsh-v` for DSH engine packages.
+   * @param member - the member being published.
+   * @returns `strata-v` or `dsh-v`.
    */
-  tagPrefixFor(): string {
-    return this.tagPrefix
+  tagPrefixFor(member: ReleaseMember): string {
+    return member.name.startsWith('@strata/') ? 'strata-v' : this.tagPrefix
   }
 
   override distTagForVersion(version: string): string | undefined {
@@ -403,15 +422,26 @@ class DshFamily extends ReleaseFamily {
   }
 
   /** Require the packed DSH runtime graph to stay on the shared exact release version. */
-  override validatePackedManifest(member: ReleaseMember, manifest: Readonly<Record<string, unknown>>): void {
-    super.validatePackedManifest(member, manifest)
+  override validatePackedManifest(
+    member: ReleaseMember,
+    manifest: Readonly<Record<string, unknown>>,
+    members?: readonly ReleaseMember[],
+  ): void {
+    super.validatePackedManifest(member, manifest, members)
+    const expectedDshVersion = member.name.startsWith('@strata/')
+      ? members?.find(candidate => !candidate.name.startsWith('@strata/'))?.version
+      : member.version
     for (const section of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
       const dependencies = manifest[section]
       if (dependencies === null || typeof dependencies !== 'object' || Array.isArray(dependencies)) continue
       for (const [name, range] of Object.entries(dependencies)) {
         if (name !== '@deepseek-ai/dsh' && !name.startsWith('@deepseek-ai/dsh-')) continue
-        if (range !== member.version) {
-          throw new Error(`${member.name}: packed ${section}.${name} must equal ${member.version}, got ${String(range)}`)
+        if (expectedDshVersion !== undefined) {
+          if (range !== expectedDshVersion) {
+            throw new Error(`${member.name}: packed ${section}.${name} must equal ${expectedDshVersion}, got ${String(range)}`)
+          }
+        } else if (typeof range !== 'string' || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(range)) {
+          throw new Error(`${member.name}: packed ${section}.${name} must be an exact release version, got ${String(range)}`)
         }
       }
     }

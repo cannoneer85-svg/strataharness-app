@@ -1,12 +1,12 @@
 /** Select local test defaults or platform release settings without changing the caller's environment. */
 
-import { accessSync, constants, readFileSync, statSync } from 'node:fs'
+import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseEnv } from 'node:util'
 import { resolveDesktopAppId, resolveMacOSNotarizationEnvironment, resolveMacOSSigningEnvironment, resolveNpmRegistry } from './desktop-release-environment.mjs'
-import { resolveDesktopAutoUpdateConfig } from './desktop-auto-update-environment.mjs'
-import { createWindowsTokenSigner } from './windows-sign.mjs'
+import { resolveOptionalDesktopAutoUpdateConfig } from './desktop-auto-update-environment.mjs'
+import * as windowsSign from './windows-sign.mjs'
 import { resolveDesktopPolicyEnvironment } from './desktop-policy-environment.mjs'
 import { validateMacOSSignatureCacheDirectory } from './macos-signature-cache-directory.mjs'
 import { resolveMacOSPackageSettings } from './macos-package-settings.mjs'
@@ -16,7 +16,7 @@ import { STRATA_DESKTOP_APP_ID } from './strata-desktop-config.mjs'
 
 const APP_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SHARED_SETTING = /^(?:DSH_DESKTOP_(?:APP_ID|AUTO_UPDATE_ENV|NPM_REGISTRY|MANDATORY_UPDATE_(?:CONFIG|(?:TEST|PROD)_ORIGIN))|DOWNLOAD_TEST_RELEASE_ID|DOWNLOAD_(?:TEST|PROD)_(?:ORIGIN|COS_BUCKET|COS_SECRET_ID|COS_SECRET_KEY))$/u
-const WINDOWS_SETTING = /^DSH_DESKTOP_WINDOWS_(?:CER_FILE|SIGNTOOL|KEY_CONTAINER|TOKEN_PIN|SIGNATURE_CACHE_DIR|SIGNATURE_CACHE_CONCURRENCY)$/u
+const WINDOWS_SETTING = /^(?:DSH_DESKTOP_WINDOWS_(?:CER_FILE|SIGNTOOL|KEY_CONTAINER|TOKEN_PIN|PUBLISHER_NAME|SIGNATURE_CACHE_DIR|SIGNATURE_CACHE_CONCURRENCY)|WIN_CSC_(?:LINK|KEY_PASSWORD))$/u
 const MACOS_SETTING = /^(?:DSH_DESKTOP_MACOS_(?:SIGNING_IDENTITY|TEAM_ID|SIGNATURE_CACHE_DIR|PACK_CONCURRENCY|DOWNLOAD_PROXY|NOTARIZATION_PROXY)|APPLE_(?:API_KEY|API_KEY_ID|API_ISSUER|ID|APP_SPECIFIC_PASSWORD|TEAM_ID|KEYCHAIN|KEYCHAIN_PROFILE)|CSC_(?:LINK|KEY_PASSWORD))$/u
 const AMBIENT_RELEASE_SETTING = /^(?:DSH_DESKTOP_(?:APP_ID|AUTO_UPDATE_ENV|MANDATORY_UPDATE_.*|WINDOWS_.*|MACOS_.*)|APPLE_.*|(?:WIN_)?CSC_.*|DOWNLOAD_(?:TEST|PROD)_.*)$/iu
 const FILE_SETTINGS = ['DSH_DESKTOP_WINDOWS_CER_FILE', 'DSH_DESKTOP_WINDOWS_SIGNTOOL', 'APPLE_API_KEY', 'APPLE_KEYCHAIN', 'CSC_LINK']
@@ -31,6 +31,20 @@ export function localMacOSPackageEnvironment(environment = process.env) {
     ...Object.fromEntries(Object.entries(environment).filter(([name]) => !AMBIENT_RELEASE_SETTING.test(name))),
     DSH_DESKTOP_APP_ID: STRATA_DESKTOP_APP_ID,
     DSH_DESKTOP_UNSIGNED: '1',
+  }
+}
+
+/**
+ * Prepare a CI release packaging environment from process variables when no local `.env.<platform>` file exists.
+ * @param {NodeJS.ProcessEnv} [environment] - CI runner environment carrying signing and update secrets.
+ * @returns {NodeJS.ProcessEnv} Signed CI packaging environment with StrataHarness production defaults.
+ */
+export function ciDesktopPackageEnvironment(environment = process.env) {
+  return {
+    ...environment,
+    DSH_DESKTOP_APP_ID: environment.DSH_DESKTOP_APP_ID?.trim() || STRATA_DESKTOP_APP_ID,
+    DSH_DESKTOP_AUTO_UPDATE_ENV: environment.DSH_DESKTOP_AUTO_UPDATE_ENV?.trim() || 'production',
+    DSH_DESKTOP_UNSIGNED: '0',
   }
 }
 
@@ -65,7 +79,7 @@ export function loadDesktopPackageEnvironment(platform, environment = process.en
       const filename = platform === 'win32' ? 'windows-signing.env' : 'macos-signing.env'
       Object.assign(settings, readSettings(join(dirname(dirname(path)), 'secrets', filename),
         name => platform === 'win32'
-          ? /^DSH_DESKTOP_WINDOWS_(?:CER_FILE|SIGNTOOL|KEY_CONTAINER|TOKEN_PIN)$/u.test(name)
+          ? /^(?:DSH_DESKTOP_WINDOWS_(?:CER_FILE|SIGNTOOL|KEY_CONTAINER|TOKEN_PIN|PUBLISHER_NAME)|WIN_CSC_(?:LINK|KEY_PASSWORD))$/u.test(name)
           : MACOS_SETTING.test(name) && !publicPlatformSetting.test(name)))
     }
   }
@@ -114,6 +128,13 @@ function readSettings(path, accepts) {
   for (const name of FILE_SETTINGS) {
     if (settings[name]?.trim()) settings[name] = resolve(dirname(path), settings[name].trim())
   }
+  const winCscLink = settings.WIN_CSC_LINK?.trim()
+  if (winCscLink && !winCscLink.startsWith('data:') && !winCscLink.startsWith('file://')) {
+    const candidate = resolve(dirname(path), winCscLink)
+    if (existsSync(candidate) || /\.(?:pfx|p12)$/iu.test(winCscLink)) {
+      settings.WIN_CSC_LINK = candidate
+    }
+  }
   return settings
 }
 
@@ -141,14 +162,26 @@ export function validateDesktopPackageEnvironment(environment, target, options =
   if (target.platform === 'darwin') resolveMacOSPackageSettings(environment)
   else resolveWindowsPackageSettings(environment)
   if (options.unsigned) return
-  if (!options.prepareOnly) resolveDesktopAutoUpdateConfig(environment, target.platform, target.arch)
+  if (!options.prepareOnly) resolveOptionalDesktopAutoUpdateConfig(environment, target.platform, target.arch)
   if (target.platform === 'win32') {
-    if (!options.prepareOnly) createWindowsTokenSigner({
-      certificateFile: environment.DSH_DESKTOP_WINDOWS_CER_FILE,
-      signTool: environment.DSH_DESKTOP_WINDOWS_SIGNTOOL,
-      tokenPin: environment.DSH_DESKTOP_WINDOWS_TOKEN_PIN,
-      keyContainer: environment.DSH_DESKTOP_WINDOWS_KEY_CONTAINER,
-    })
+    if (!options.prepareOnly) {
+      if (environment.WIN_CSC_LINK?.trim()) {
+        windowsSign.createWindowsReleaseSigner({
+          pfxLink: environment.WIN_CSC_LINK,
+          pfxPassword: environment.WIN_CSC_KEY_PASSWORD,
+          signTool: environment.DSH_DESKTOP_WINDOWS_SIGNTOOL,
+          environment,
+        })
+      }
+      else {
+        windowsSign.createWindowsTokenSigner({
+          certificateFile: environment.DSH_DESKTOP_WINDOWS_CER_FILE,
+          signTool: environment.DSH_DESKTOP_WINDOWS_SIGNTOOL,
+          tokenPin: environment.DSH_DESKTOP_WINDOWS_TOKEN_PIN,
+          keyContainer: environment.DSH_DESKTOP_WINDOWS_KEY_CONTAINER,
+        })
+      }
+    }
     if (!options.prepareOnly) resolveWindowsSignatureCacheDirectory(environment)
   } else {
     if (environment.DSH_DESKTOP_MACOS_SIGNATURE_CACHE_DIR !== undefined) validateMacOSSignatureCacheDirectory(environment.DSH_DESKTOP_MACOS_SIGNATURE_CACHE_DIR)

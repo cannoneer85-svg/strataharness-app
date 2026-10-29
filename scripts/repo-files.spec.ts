@@ -269,9 +269,11 @@ describe('isOperationalDocPath and isInitProjectTemplatePath', () => {
     expect(isOperationalDocPath('docs\\specs\\0001-example-spec.md')).toBe(true)
     expect(isOperationalDocPath('docs/handoff/LATEST.md')).toBe(true)
     expect(isOperationalDocPath('docs/analysis/2026-10-29-audit.md')).toBe(true)
+    expect(isOperationalDocPath('docs/strata/fork-maintenance.md')).toBe(true)
     expect(isOperationalDocPath('docs/agents/issue-tracker.md')).toBe(false)
     expect(isOperationalDocPath('docs/architecture.md')).toBe(false)
     expect(isOperationalDocPath('docs/specs-extra/foo.md')).toBe(false)
+    expect(isOperationalDocPath('docs/strata-extra/foo.md')).toBe(false)
   })
 
   it('matches init-project scaffold templates and rejects live skill instructions', () => {

@@ -1,9 +1,10 @@
-/** Resolve the Desktop auto-update channel and its Tencent COS destination. */
+/** Resolve the Desktop auto-update channel and its generic HTTPS object-storage destination. */
 
 import { valid } from 'semver'
 import {
   STRATA_PRODUCTION_UPDATE_FIXED_ORIGIN,
   STRATA_PRODUCTION_UPDATE_ORIGIN_ENV,
+  STRATA_UPDATE_RELEASE_PREFIX,
   assertIsolatedStrataUpdateOrigin,
 } from './strata-desktop-config.mjs'
 
@@ -156,7 +157,7 @@ export function resolveDesktopAutoUpdateConfig(env, platform, arch) {
     if (originEnvName === undefined) throw new Error('desktop auto-update: selected deployment has no origin')
     origin = httpsOrigin(requiredEnvironmentValue(env, originEnvName), originEnvName)
   }
-  let releasePrefix = 'dsh-desk'
+  let releasePrefix = STRATA_UPDATE_RELEASE_PREFIX
   if (environment === 'test') {
     const releaseId = requiredEnvironmentValue(env, 'DOWNLOAD_TEST_RELEASE_ID')
     if (!/^[a-f0-9]{32}$/u.test(releaseId)) {
@@ -177,7 +178,28 @@ export function resolveDesktopAutoUpdateConfig(env, platform, arch) {
 }
 
 /**
- * Resolve the public updater URL and private COS destination for one upload target.
+ * Resolve optional updater configuration, returning `undefined` when production omits `DOWNLOAD_PROD_ORIGIN`.
+ * @param {NodeJS.ProcessEnv} env - Packaging environment.
+ * @param {NodeJS.Platform} platform - Target Node.js platform.
+ * @param {string} arch - Target Node.js architecture.
+ * @returns {ReturnType<typeof resolveDesktopAutoUpdateConfig> | undefined} Resolved updater configuration, or `undefined` when omitted.
+ */
+export function resolveOptionalDesktopAutoUpdateConfig(env, platform, arch) {
+  const environment = resolveDesktopAutoUpdateEnvironment(env)
+  if (
+    environment === 'production'
+    && STRATA_PRODUCTION_UPDATE_FIXED_ORIGIN === undefined
+    && (env[STRATA_PRODUCTION_UPDATE_ORIGIN_ENV]?.trim() ?? '') === ''
+  ) {
+    resolveDesktopUpdateChannel(env)
+    resolveDesktopAutoUpdateTarget(platform, arch)
+    return undefined
+  }
+  return resolveDesktopAutoUpdateConfig(env, platform, arch)
+}
+
+/**
+ * Resolve the public updater URL and object-storage destination for one upload target.
  * @param {NodeJS.ProcessEnv} env - Upload environment.
  * @param {NodeJS.Platform} platform - Target Node.js platform.
  * @param {string} arch - Target Node.js architecture.

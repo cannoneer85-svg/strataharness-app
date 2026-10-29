@@ -8,6 +8,13 @@
 export function localMacOSPackageEnvironment(environment?: NodeJS.ProcessEnv): NodeJS.ProcessEnv
 
 /**
+ * Prepare a CI release packaging environment from process variables when no local `.env.<platform>` file exists.
+ * @param environment - CI runner environment carrying signing and update secrets.
+ * @returns Signed CI packaging environment with StrataHarness production defaults.
+ */
+export function ciDesktopPackageEnvironment(environment?: NodeJS.ProcessEnv): NodeJS.ProcessEnv
+
+/**
  * Read a machine preset when selected, otherwise the target's required dotenv; no ambient release fallback.
  * PACKAGE_TEST_RELEASE_ID overrides the test preset only; blank retains its configured ID.
  * @param platform Target platform.

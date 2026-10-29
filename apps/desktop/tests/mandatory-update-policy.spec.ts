@@ -201,4 +201,21 @@ describe('policy deployment and page validation', () => {
     { authentication: 'feishu-test', origin: 'http://127.0.0.1:9000' }])('rejects invalid deployment input: %j', (change) => {
     expect(() => resolveDesktopPolicyConfig({ ...deployment, ...change })).toThrow()
   })
+
+  it('blocks deepseek.com and *.deepseek.com policy origins, auth origins, and fallback pages at runtime', () => {
+    expect(() => resolveDesktopPolicyConfig({ ...deployment, origin: 'https://api.deepseek.com' }))
+      .toThrow(/DeepSeek policy domains are blocked/u)
+    expect(() => resolveDesktopPolicyConfig({ ...deployment, origin: 'https://deepseek.com' }))
+      .toThrow(/DeepSeek policy domains are blocked/u)
+    expect(() => resolveDesktopPolicyConfig({ ...deployment, allowedPageOrigins: ['https://download.deepseek.com'] }))
+      .toThrow(/DeepSeek policy domains are blocked/u)
+    expect(() =>
+      resolveDesktopPolicyConfig({
+        ...deployment,
+        authentication: 'feishu-test',
+        allowedAuthOrigins: ['https://login.deepseek.com'],
+      }),
+    ).toThrow(/DeepSeek policy domains are blocked/u)
+    expect(desktopPolicyPage('https://download.deepseek.com/desktop', ['https://download.deepseek.com'])).toBeUndefined()
+  })
 })

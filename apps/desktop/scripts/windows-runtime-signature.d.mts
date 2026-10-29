@@ -27,7 +27,7 @@ export function preserveWindowsRuntimeSignature(path: string, options: {
 
 /** Supervised signing dependencies shared by all Windows release trees. */
 export interface WindowsCodeSigningOptions {
-  thumbprint: string
+  thumbprint?: string | undefined
   sign: ReturnType<typeof import('./windows-sign.mjs').createWindowsTokenSigner>
   inspect?: typeof inspectWindowsRuntimeSignature
   record: (event: object) => void

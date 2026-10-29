@@ -14,7 +14,13 @@ export interface DesktopElectronBuilderConfig {
     { readonly from: string, readonly to: 'dsh', readonly filter: readonly ['**/*'] },
     { readonly from: string, readonly to: 'dsh/node_modules', readonly filter: readonly ['**/*'] },
   ]
-  readonly extraMetadata: { readonly name: '@strata/desktop'; readonly dshDesktopAppId: string }
+  readonly extraMetadata: {
+    readonly name: '@strata/desktop'
+    readonly version: string
+    readonly dshEngineVersion: string
+    readonly dshDesktopAppId: string
+    readonly dshDesktopUpdateChannel: 'nightly' | 'latest'
+  }
   readonly asarUnpack: readonly string[]
   readonly extraResources: readonly [
     { readonly from: string, readonly to: 'runtime' },
@@ -34,6 +40,7 @@ export interface DesktopElectronBuilderConfig {
     readonly forceCodeSigning: boolean
     readonly notarize: boolean
     readonly signIgnore: readonly string[]
+    readonly target: readonly ['dmg', 'zip']
   }
   readonly dmg: {
     readonly format: 'ULMO'
@@ -61,7 +68,7 @@ export interface DesktopElectronBuilderConfig {
   readonly afterPack: (context: AfterPackContext) => Promise<void>
   readonly afterSign: (context: AfterPackContext) => Promise<void>
   readonly artifactBuildCompleted: (artifact: { readonly file: string }) => Promise<void> | undefined
-  readonly publish: readonly [{ readonly provider: 'generic', readonly url: string }] | null
+  readonly publish: readonly [{ readonly provider: 'generic', readonly url: string, readonly channel: 'nightly' | 'latest' }] | null
 }
 
 /**

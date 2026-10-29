@@ -3,8 +3,9 @@ import { describe, expect, it, vi } from 'vitest'
 const { verifyDesktopRuntime } = vi.hoisted(() => ({
   verifyDesktopRuntime: vi.fn<(root: string, expected: string) => Promise<void>>(async () => undefined),
 }))
-// The hook imports the built tree, which a clean checkout has not produced; this is the path it resolves.
+// The hook imports the built tree, which a clean checkout has not produced; mock both virtual and built paths.
 vi.mock('/apps/desktop/lib/types/runtime-tree.js', () => ({ verifyDesktopRuntime }))
+vi.mock('../lib/types/runtime-tree.js', () => ({ verifyDesktopRuntime }))
 vi.mock('../scripts/windows-asar-unpack.mjs', async importOriginal => ({
   ...await importOriginal<typeof import('../scripts/windows-asar-unpack.mjs')>(),
   verifyWindowsAsarUnpack: async () => undefined,
@@ -49,15 +50,18 @@ describe('packaged runtime verification', () => {
   })
 
   it('does not let a build version change what the bundled runtime must declare', async () => {
-    const productVersion = (JSON.parse(
+    const engineVersion = (JSON.parse(
       await import('node:fs/promises').then(async fs => fs.readFile(new URL('../package.json', import.meta.url), 'utf8')),
     ) as { version: string }).version
+    const { desktopBuildVersionPrefix } = await import('../scripts/desktop-build-version.mjs')
+    const { resolveStrataProductVersion } = await import('../scripts/strata-desktop-config.mjs')
     const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
+    const buildVersion = `${desktopBuildVersionPrefix(resolveStrataProductVersion({}))}20260921.1`
     verifyDesktopRuntime.mockClear()
     const config = createElectronBuilderConfig(
-      { ...ENVIRONMENT, DSH_DESKTOP_BUILD_VERSION: `${productVersion}.20260921.1` }, 'win32', 'x64')
-    expect(config.extraMetadata).toMatchObject({ version: `${productVersion}.20260921.1` })
+      { ...ENVIRONMENT, DSH_DESKTOP_BUILD_VERSION: buildVersion }, 'win32', 'x64')
+    expect(config.extraMetadata).toMatchObject({ version: buildVersion, dshEngineVersion: engineVersion })
     await config.afterPack(CONTEXT as never)
-    expect(verifyDesktopRuntime.mock.calls[0]?.[1]).toBe(productVersion)
+    expect(verifyDesktopRuntime.mock.calls[0]?.[1]).toBe(engineVersion)
   })
 })

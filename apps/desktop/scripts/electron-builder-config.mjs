@@ -13,13 +13,8 @@ import {
 } from './desktop-release-environment.mjs'
 import { notarizeMacOSDiskImageArtifact } from './notarize-macos-disk-images.mjs'
 import { verifyMacOSDiskImageSignature, verifyMacOSSignatureAfterSign } from './verify-macos-signature.mjs'
-import {
-  createWindowsTokenSigner,
-  installWindowsNsisBootstrapSigner,
-  resolveWindowsUpdatePublisher,
-  scrubWindowsSigningEnvironment,
-} from './windows-sign.mjs'
-import { resolveDesktopAutoUpdateConfig } from './desktop-auto-update-environment.mjs'
+import * as windowsSign from './windows-sign.mjs'
+import { resolveOptionalDesktopAutoUpdateConfig } from './desktop-auto-update-environment.mjs'
 import { resolveDesktopBuildCommit } from './desktop-build-commit.mjs'
 import { resolveDesktopBuildVersion } from './desktop-build-version.mjs'
 import { resolveDesktopPolicyEnvironment } from './desktop-policy-environment.mjs'
@@ -39,9 +34,11 @@ import {
   STRATA_DESKTOP_PROTOCOLS,
   STRATA_MACOS_MICROPHONE_USAGE,
   STRATA_NSIS_INSTALLER_LANGUAGES,
+  resolveStrataProductVersion,
   strataArtifactNameTemplate,
   strataBundledExtraResources,
 } from './strata-desktop-config.mjs'
+import { STRATA_SIGNING_MODE_ENV, resolveStrataSigningMode } from './strata-signing-mode.mjs'
 
 /**
  * Create electron-builder configuration from one release environment.
@@ -66,11 +63,14 @@ export function createElectronBuilderConfig(
   if (env.DSH_DESKTOP_UNSIGNED !== undefined && !['0', '1'].includes(env.DSH_DESKTOP_UNSIGNED)) {
     throw new Error('desktop package: DSH_DESKTOP_UNSIGNED must be 0 or 1')
   }
-  const unsigned = env.DSH_DESKTOP_UNSIGNED === '1'
   const skipNotarization = env.DSH_DESKTOP_MACOS_SKIP_NOTARIZATION === '1'
   if (env.DSH_DESKTOP_MACOS_SKIP_NOTARIZATION !== undefined && !['0', '1'].includes(env.DSH_DESKTOP_MACOS_SKIP_NOTARIZATION)) {
     throw new Error('desktop package: DSH_DESKTOP_MACOS_SKIP_NOTARIZATION must be 0 or 1')
   }
+  const explicitSigningMode = env[STRATA_SIGNING_MODE_ENV]?.trim()
+  const unsigned = explicitSigningMode !== undefined && explicitSigningMode !== ''
+    ? resolveStrataSigningMode({ mode: explicitSigningMode, platform: resolvedPlatform, skipNotarization, env }).unsigned
+    : env.DSH_DESKTOP_UNSIGNED === '1'
   if (skipNotarization && (unsigned || resolvedPlatform !== 'darwin')) throw new Error('Skipping notarization requires a signed macOS build')
   const packagesMacOS = targetPlatform === 'darwin' || (targetPlatform === undefined && hostPlatform === 'darwin')
   const packagesWindows = resolvedPlatform === 'win32'
@@ -85,30 +85,41 @@ export function createElectronBuilderConfig(
   let windowsCode = []
   const unpack = ['**/*.{node,dylib,dll,so,exe}', '**/*.so.*', '**/spawn-helper', '**/@vscode/ripgrep-*/bin/rg',
     `**/node_modules/@deepseek-ai/libreoffice-kit-${resolvedPlatform}-${resolvedArch}/**/*`]
+  const preserveSignature = async (path) => {
+    for (const [sourceRoot, destinationRoot] of [[join(buildPaths.runtime, 'primary-runtime'), primaryRuntimeDestination], [buildPaths.dsh, dshDestination]]) {
+      if (destinationRoot !== undefined && await preserveWindowsRuntimeSignature(path, {
+        sourceRoot, destinationRoot, runDirectory: env.DSH_DESKTOP_PACKAGING_RUN_DIR,
+      })) return true
+    }
+    return false
+  }
   const windowsSigner = packagesWindows && !unsigned
-    ? createWindowsTokenSigner({
-        certificateFile: env.DSH_DESKTOP_WINDOWS_CER_FILE,
-        signTool: env.DSH_DESKTOP_WINDOWS_SIGNTOOL,
-        tokenPin: env.DSH_DESKTOP_WINDOWS_TOKEN_PIN,
-        keyContainer: env.DSH_DESKTOP_WINDOWS_KEY_CONTAINER,
-        preserveSignature: async path => {
-          for (const [sourceRoot, destinationRoot] of [[join(buildPaths.runtime, 'primary-runtime'), primaryRuntimeDestination], [buildPaths.dsh, dshDestination]]) {
-            if (destinationRoot !== undefined && await preserveWindowsRuntimeSignature(path, {
-              sourceRoot, destinationRoot, runDirectory: env.DSH_DESKTOP_PACKAGING_RUN_DIR,
-            })) return true
-          }
-          return false
-        },
-      })
+    ? (env.WIN_CSC_LINK?.trim()
+        ? windowsSign.createWindowsReleaseSigner({
+            pfxLink: env.WIN_CSC_LINK,
+            pfxPassword: env.WIN_CSC_KEY_PASSWORD,
+            signTool: env.DSH_DESKTOP_WINDOWS_SIGNTOOL,
+            environment: env,
+            preserveSignature,
+          })
+        : windowsSign.createWindowsTokenSigner({
+            certificateFile: env.DSH_DESKTOP_WINDOWS_CER_FILE,
+            signTool: env.DSH_DESKTOP_WINDOWS_SIGNTOOL,
+            tokenPin: env.DSH_DESKTOP_WINDOWS_TOKEN_PIN,
+            keyContainer: env.DSH_DESKTOP_WINDOWS_KEY_CONTAINER,
+            preserveSignature,
+          }))
     : undefined
   if (windowsSigner !== undefined) {
-    installWindowsNsisBootstrapSigner({ sign: windowsSigner })
+    windowsSign.installWindowsNsisBootstrapSigner({ sign: windowsSigner })
   }
-  const update = unsigned ? undefined : resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
+  const update = unsigned ? undefined : resolveOptionalDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
   if (preparedRuntime !== undefined) buildPaths.dsh = preparedRuntime
   // electron-builder merges extraMetadata into the packaged manifest, so a build version here reaches
   // the artifact names, the update feed, and the installed app.getVersion() the updater compares against.
-  const productVersion = JSON.parse(readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8')).version
+  const repositoryRoot = fileURLToPath(new URL('../../..', import.meta.url))
+  const dshEngineVersion = JSON.parse(readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8')).version
+  const productVersion = resolveStrataProductVersion(env, repositoryRoot)
   const buildVersion = resolveDesktopBuildVersion(env, productVersion)
   if (update?.channel === 'latest' && buildVersion.includes('-')) throw new Error('desktop package: latest requires a stable version')
   const packaged = resolveDesktopBuildCommit(env)
@@ -117,10 +128,11 @@ export function createElectronBuilderConfig(
     protocols: STRATA_DESKTOP_PROTOCOLS,
     extraMetadata: {
       name: STRATA_DESKTOP_PACKAGE_NAME,
+      version: buildVersion,
+      dshEngineVersion,
       dshDesktopAppId: appId,
       dshDesktopUpdateChannel: update?.channel ?? 'nightly',
       ...(policy === undefined ? {} : { dshMandatoryUpdatePolicy: policy }),
-      ...buildVersion === productVersion ? {} : { version: buildVersion },
       ...packaged === undefined ? {} : { dshBuildCommit: packaged.commit, dshBuildDirty: packaged.dirty },
     },
     productName: STRATA_DESKTOP_PRODUCT_NAME,
@@ -135,7 +147,7 @@ export function createElectronBuilderConfig(
       await promisify(execFile)('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
         fileURLToPath(new URL('./prepare-windows-installer.ps1', import.meta.url)),
         '-OutputDirectory', join(buildPaths.root, 'installer-ui')], {
-        env: scrubWindowsSigningEnvironment(env), windowsHide: true,
+        env: windowsSign.scrubWindowsSigningEnvironment(env), windowsHide: true,
       })
       if (windowsSigner !== undefined) {
         await windowsSigner({ path: join(buildPaths.root, 'installer-ui', 'window-frame.dll'), hash: 'sha256', isNest: false })
@@ -163,7 +175,7 @@ export function createElectronBuilderConfig(
     extraResources: [
       { from: buildPaths.runtime, to: 'runtime' },
       { from: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)), to: 'icon.png' },
-      ...strataBundledExtraResources(fileURLToPath(new URL('../../..', import.meta.url))),
+      ...strataBundledExtraResources(repositoryRoot),
       // Windows tray bitmaps; macOS keeps the Dock and ships no menu bar icon.
       ...(packagesWindows ? [{ from: fileURLToPath(new URL('../resources/tray-windows.ico', import.meta.url)), to: 'tray.ico' }] : []),
     ],
@@ -184,7 +196,7 @@ export function createElectronBuilderConfig(
       // Prepared runtime files retain their signatures; PAK resources are sealed by their enclosing bundle.
       signIgnore: ['/Contents/Resources/app\\.asar\\.unpacked/dsh(?:/|$)', '/Contents/Resources/runtime/primary-runtime(?:/|$)', '\\.pak$'],
       notarize: !unsigned && !skipNotarization,
-      target: unsigned ? ['dmg'] : ['dmg', 'zip'],
+      target: ['dmg', 'zip'],
     },
     dmg: {
       format: 'ULMO',
@@ -212,17 +224,21 @@ export function createElectronBuilderConfig(
         await writeMacOSAppUpdateConfig(resourcesDir, resolveMacOSAppUpdateFeed(context.packager.config.publish),
           context.packager.appInfo.updaterCacheDirName)
       }
-      // The bundled runtime declares whichever version prepared it: the product version for an ordinary
+      // The bundled runtime declares whichever version prepared it: the DSH engine version for an ordinary
       // release, and a rewritten one for installed-update qualification.
       await verifyDesktopRuntime(buildPaths.dsh,
-        preparedRuntimeVersion ?? productVersion, { platform: resolvedPlatform, arch: resolvedArch })
+        preparedRuntimeVersion ?? dshEngineVersion, { platform: resolvedPlatform, arch: resolvedArch })
       // Unsigned Windows builds skip electron-builder's afterSign hook.
       if (packagesWindows && unsigned) await verifyWindowsAsarUnpack(buildPaths.dsh, resourcesDir, windowsCode)
     },
     afterSign: async context => {
       if (windowsSigner !== undefined) {
+        const certificateFile = env.DSH_DESKTOP_WINDOWS_CER_FILE?.trim()
+        const thumbprint = certificateFile
+          ? new X509Certificate(await readFile(certificateFile)).fingerprint.replaceAll(':', '')
+          : undefined
         await signWindowsCode(context.appOutDir, {
-          thumbprint: new X509Certificate(await readFile(env.DSH_DESKTOP_WINDOWS_CER_FILE)).fingerprint.replaceAll(':', ''),
+          thumbprint,
           sign: windowsSigner,
           record: event => recordPackagingEvent(env.DSH_DESKTOP_PACKAGING_RUN_DIR, event),
         })
@@ -253,7 +269,11 @@ export function createElectronBuilderConfig(
       forceCodeSigning: !unsigned,
       signtoolOptions: {
         sign: windowsSigner,
-        publisherName: windowsSigner === undefined ? undefined : resolveWindowsUpdatePublisher(env.DSH_DESKTOP_WINDOWS_CER_FILE),
+        publisherName: windowsSigner === undefined
+          ? undefined
+          : (env.WIN_CSC_LINK?.trim() && !env.DSH_DESKTOP_WINDOWS_CER_FILE?.trim()
+              ? (env.DSH_DESKTOP_WINDOWS_PUBLISHER_NAME?.trim() || undefined)
+              : windowsSign.resolveWindowsUpdatePublisher(env.DSH_DESKTOP_WINDOWS_CER_FILE)),
         signingHashAlgorithms: ['sha256'],
       },
       target: ['nsis'],

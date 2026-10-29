@@ -79,6 +79,19 @@ export function resolveDesktopAutoUpdateConfig(
 ): DesktopAutoUpdateConfig
 
 /**
+ * Resolve optional updater configuration, returning `undefined` when production omits `DOWNLOAD_PROD_ORIGIN`.
+ * @param env - Packaging environment.
+ * @param platform - Target Node.js platform.
+ * @param arch - Target Node.js architecture.
+ * @returns Resolved updater configuration, or `undefined` when omitted.
+ */
+export function resolveOptionalDesktopAutoUpdateConfig(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+  arch: string,
+): DesktopAutoUpdateConfig | undefined
+
+/**
  * Resolve the public updater URL and private COS destination for one upload target.
  * @param env - Upload environment.
  * @param platform - Target Node.js platform.

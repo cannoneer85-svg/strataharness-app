@@ -219,6 +219,54 @@ describe('client build environment', () => {
     })
   })
 
+  it('prefers strata-product.json productVersion and STRATA_PRODUCT_VERSION over root package.json engine version', () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), 'dsh-client-build-strata-'))
+    roots.push(fixtureRoot)
+    write(join(fixtureRoot, 'package.json'), '{"version":"0.2.1-rc.4"}\n')
+    write(join(fixtureRoot, 'strata-product.json'), `${JSON.stringify({
+      productName: 'StrataHarness',
+      productVersion: '1.0.0',
+      upstreamBaseTag: 'dsh-v0.2.1-rc.4',
+      upstreamRepository: 'https://github.com/deepseek-ai/deepseek-harness.git',
+    }, null, 2)}\n`)
+
+    expect(repositoryVersion(fixtureRoot)).toBe('1.0.0')
+    expect(repositoryVersion(root)).toBe('1.0.0')
+    expect(repositoryClientBuildEnvironment(fixtureRoot, {
+      DSH_CLIENT_COMMIT_HASH: COMMIT_HASH,
+      DSH_CLIENT_VERSION: 'spoofed',
+    })).toEqual({
+      DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
+      DSH_CLIENT_TITLE: 'StrataHarness',
+      DSH_CLIENT_VERSION: '1.0.0',
+    })
+    expect(officialClientBuildEnvironment(fixtureRoot, {
+      DSH_CLIENT_COMMIT_HASH: COMMIT_HASH,
+    })).toEqual({
+      DSH_CLIENT_BUILD_PROFILE: 'official',
+      DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
+      DSH_CLIENT_TITLE: 'StrataHarness',
+      DSH_CLIENT_VERSION: '1.0.0',
+    })
+    expect(officialClientBuildEnvironment(fixtureRoot, {
+      DSH_CLIENT_COMMIT_HASH: COMMIT_HASH,
+      STRATA_PRODUCT_VERSION: ' 1.0.1 ',
+    })).toEqual({
+      DSH_CLIENT_BUILD_PROFILE: 'official',
+      DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
+      DSH_CLIENT_TITLE: 'StrataHarness',
+      DSH_CLIENT_VERSION: '1.0.1',
+    })
+
+    expect(() => officialClientBuildEnvironment(fixtureRoot, {
+      DSH_CLIENT_COMMIT_HASH: COMMIT_HASH,
+      STRATA_PRODUCT_VERSION: 'v1.0.1',
+    })).toThrow(/SemVer|invalid/iu)
+
+    write(join(fixtureRoot, 'strata-product.json'), '{"productVersion":"v1.0.0"}\n')
+    expect(() => repositoryVersion(fixtureRoot)).toThrow(/productVersion/u)
+  })
+
   it('defines only public client values over a non-enumerable fallback', () => {
     const environment = {
       PATH: '/bin',
@@ -299,7 +347,7 @@ describe('client build environment', () => {
 
   it('keeps public client values out of workflow-wide environments', () => {
     for (const name of dshBuildWorkflows) {
-      const path = `.github/workflows/${name}`
+      const path = `.github/upstream-workflows/${name}`
       const document: unknown = yaml.load(readFileSync(resolve(root, path), 'utf8'))
       if (typeof document !== 'object' || document === null || Array.isArray(document)) {
         throw new TypeError(`${path} must contain a workflow object`)

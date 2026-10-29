@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ClientRequest } from 'electron'
-import { DesktopUpdateHttpExecutor } from '../src/update-http-executor.ts'
+import { assertIsolatedUpdaterRequestTarget, DesktopUpdateHttpExecutor } from '../src/update-http-executor.ts'
 
 beforeEach(() => { vi.useFakeTimers() })
 afterEach(() => { vi.useRealTimers() })
@@ -66,5 +66,34 @@ describe('Electron updater inactivity deadline', () => {
 
   it.each([0, 999, 1.5, NaN, 2_147_483_648])('rejects invalid inactivity configuration: %s', (value) => {
     expect(() => new DesktopUpdateHttpExecutor(value)).toThrow('idle timeout')
+  })
+
+  it('blocks direct, redirected, and Host-header updater requests targeting deepseek.com or *.deepseek.com at runtime', () => {
+    const executor = new DesktopUpdateHttpExecutor(1000)
+    const blockedRequests = [
+      { url: 'https://download.deepseek.com/dsh-desk/feeds/win-x64/latest.yml' },
+      { url: 'https://deepseek.com/latest.yml' },
+      { hostname: 'cdn.deepseek.com' },
+      { hostname: 'download.deepseek.com.' },
+      { host: 'updates.deepseek.com:443' },
+      { hostname: 'releases.strataharness.dev', headers: { Host: 'download.deepseek.com' } },
+    ]
+    for (const blocked of blockedRequests) {
+      expect(() => { assertIsolatedUpdaterRequestTarget(blocked) }).toThrow(/DeepSeek update domains are blocked/u)
+      expect(() => executor.createRequest(blocked, () => undefined)).toThrow(/DeepSeek update domains are blocked/u)
+    }
+
+    expect(() => {
+      assertIsolatedUpdaterRequestTarget({
+        url: 'https://releases.strataharness.dev/strataharness/feeds/win-x64/latest.yml',
+        hostname: 'releases.strataharness.dev',
+      })
+    }).not.toThrow()
+    expect(() => {
+      assertIsolatedUpdaterRequestTarget({
+        url: 'http://127.0.0.1:19876/latest.yml',
+        hostname: '127.0.0.1',
+      })
+    }).not.toThrow()
   })
 })

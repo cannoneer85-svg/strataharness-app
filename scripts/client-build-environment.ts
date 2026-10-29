@@ -9,6 +9,13 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { dirname, resolve } from 'node:path'
+import { parse as parseSemVer } from 'semver'
+
+/** Root product manifest declaring StrataHarness productVersion independently of DSH engine manifests. */
+const STRATA_PRODUCT_MANIFEST_FILENAME = 'strata-product.json'
+
+/** Environment variable overriding strata-product.json productVersion for release and qualification builds. */
+const STRATA_PRODUCT_VERSION_ENV = 'STRATA_PRODUCT_VERSION'
 
 /** Prefix reserved for build-time values that may be embedded in browser artifacts. */
 const CLIENT_BUILD_ENV_PREFIX = 'DSH_CLIENT_'
@@ -62,12 +69,49 @@ export function repositoryCommitHash(root: string, environment: NodeJS.ProcessEn
   return value.slice(0, 7).toLowerCase()
 }
 
+function assertCanonicalProductSemVer(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value === '') {
+    throw new Error(`${label} must be a valid SemVer string; got ${JSON.stringify(value)}`)
+  }
+  const parsed = parseSemVer(value, { loose: false })
+  if (parsed === null || parsed.build.length > 0 || parsed.version !== value) {
+    throw new Error(`${label} has an invalid SemVer ${JSON.stringify(value)}`)
+  }
+  return parsed.version
+}
+
 /**
- * Resolve the repository package version used by browser build metadata.
- * @param root - repository root containing the authoritative package.json.
- * @returns the repository's semver-compatible package version.
+ * Resolve the product or repository package version used by browser build metadata.
+ * Prefers `strata-product.json` (`productVersion`, or `STRATA_PRODUCT_VERSION` when present)
+ * and falls back to `package.json` in standalone test fixtures without a product manifest.
+ * @param root - repository root containing `strata-product.json` or `package.json`.
+ * @param environment - optional environment carrying `STRATA_PRODUCT_VERSION`.
+ * @returns the resolved semver-compatible version.
  */
-export function repositoryVersion(root: string): string {
+export function repositoryVersion(root: string, environment: NodeJS.ProcessEnv = {}): string {
+  const productPath = resolve(root, STRATA_PRODUCT_MANIFEST_FILENAME)
+  if (existsSync(productPath)) {
+    let productManifest: unknown
+    try {
+      productManifest = JSON.parse(readFileSync(productPath, 'utf8'))
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      throw new Error(`cannot read Strata product version from ${productPath}: ${detail}`)
+    }
+    if (!isObject(productManifest)) {
+      throw new Error(`strata-product.json must contain a JSON object at ${productPath}`)
+    }
+    const manifestVersion = assertCanonicalProductSemVer(
+      productManifest.productVersion,
+      'strata-product.json productVersion',
+    )
+    const override = environment[STRATA_PRODUCT_VERSION_ENV]?.trim()
+    if (override !== undefined && override !== '') {
+      return assertCanonicalProductSemVer(override, STRATA_PRODUCT_VERSION_ENV)
+    }
+    return manifestVersion
+  }
+
   const path = resolve(root, 'package.json')
   let manifest: unknown
   try {
@@ -129,7 +173,7 @@ export function repositoryClientBuildEnvironment(
     DSH_CLIENT_COMMIT_HASH: repositoryCommitHash(root, environment),
     ...(dirty === true ? { DSH_CLIENT_GIT_DIRTY: 'true' } : {}),
     DSH_CLIENT_TITLE: inherited.DSH_CLIENT_TITLE ?? OFFICIAL_CLIENT_BUILD_ENVIRONMENT.DSH_CLIENT_TITLE,
-    DSH_CLIENT_VERSION: repositoryVersion(root),
+    DSH_CLIENT_VERSION: repositoryVersion(root, environment),
   }
 }
 
@@ -145,7 +189,7 @@ export function officialClientBuildEnvironment(
 ): Readonly<Record<`DSH_CLIENT_${string}`, string>> {
   return {
     DSH_CLIENT_COMMIT_HASH: repositoryCommitHash(root, environment),
-    DSH_CLIENT_VERSION: repositoryVersion(root),
+    DSH_CLIENT_VERSION: repositoryVersion(root, environment),
     ...OFFICIAL_CLIENT_BUILD_ENVIRONMENT,
   }
 }

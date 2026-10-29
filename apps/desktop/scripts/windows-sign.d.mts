@@ -74,6 +74,105 @@ export function createRedactedWindowsSigningError(
  */
 export function repairDanglingAuthenticodeDirectory(path: string): Promise<boolean>
 
+/** Default ordered RFC-3161 Timestamp Authority servers for Windows code signing. */
+export declare const DEFAULT_WINDOWS_TSA_SERVERS: readonly string[]
+
+/** Executable SignTool runner signature injectable into PFX signing and TSA fallback helpers. */
+export type WindowsSignToolExecutor = (
+  file: string,
+  args: readonly string[],
+  options: {
+    env: NodeJS.ProcessEnv
+    windowsHide: boolean
+    timeout: number
+  },
+) => Promise<{
+  stdout?: string | Buffer | undefined
+  stderr?: string | Buffer | undefined
+}>
+
+/**
+ * Resolve `signtool.exe` from an explicit path, installed Windows 10/11 SDKs, or `PATH`.
+ *
+ * @param signTool - Explicit SignTool path when configured.
+ * @param environment - Environment consulted for SDK roots and `PATH`.
+ * @returns Canonical path to `signtool.exe`.
+ */
+export function resolveWindowsPfxSignTool(
+  signTool?: string | undefined,
+  environment?: NodeJS.ProcessEnv,
+): string
+
+/**
+ * Timestamp a signed Windows PE artifact across an ordered RFC-3161 TSA server list with round retries.
+ *
+ * @param path - Signed PE artifact path.
+ * @param options - TSA list, retry budget, and injectable process runner.
+ * @returns Winning TSA server and attempt telemetry.
+ */
+export function timestampWindowsArtifactWithFallback(
+  path: string,
+  options?: {
+    signTool?: string | undefined
+    tsaServers?: readonly string[] | undefined
+    rounds?: number | undefined
+    environment?: NodeJS.ProcessEnv | undefined
+    execSignTool?: WindowsSignToolExecutor | undefined
+    wait?: ((delayMs: number) => Promise<void>) | undefined
+  },
+): Promise<{
+  server: string
+  round: number
+  attempts: number
+}>
+
+/**
+ * Create a serialized Windows `.pfx` code-signing hook supporting file paths, Base64 secrets, and RFC-3161 TSA fallback.
+ *
+ * @param options - PFX identity, TSA fallback list, and optional injected executor.
+ * @returns Serialized signing hook.
+ */
+export function createWindowsPfxSigner(options: {
+  pfxLink?: string | undefined
+  pfxPassword?: string | undefined
+  signTool?: string | undefined
+  tsaServers?: readonly string[] | undefined
+  tsaRounds?: number | undefined
+  tempDirectory?: string | undefined
+  environment?: NodeJS.ProcessEnv | undefined
+  preserveSignature?: ((path: string) => Promise<boolean>) | undefined
+  execSignTool?: WindowsSignToolExecutor | undefined
+  wait?: ((delayMs: number) => Promise<void>) | undefined
+}): (configuration: {
+  path: string
+  hash: string
+  isNest: boolean
+}) => Promise<void>
+
+/**
+ * Create the appropriate Windows release signer (`.pfx` when `WIN_CSC_LINK` is configured, otherwise SafeNet hardware token).
+ *
+ * @param options - Combined Windows signing configuration.
+ * @returns Serialized signing hook.
+ */
+export function createWindowsReleaseSigner(options: {
+  pfxLink?: string | undefined
+  pfxPassword?: string | undefined
+  certificateFile?: string | undefined
+  signTool?: string | undefined
+  tokenPin?: string | undefined
+  keyContainer?: string | undefined
+  commandInterpreter?: string | undefined
+  runDirectory?: string | undefined
+  stateDirectory?: string | undefined
+  environment?: NodeJS.ProcessEnv | undefined
+  preserveSignature?: ((path: string) => Promise<boolean>) | undefined
+}): (configuration: {
+  path: string
+  hash: string
+  isNest: boolean
+}) => Promise<void>
+
 /**
  * Sign electron-builder's temporary NSIS executable before enterprise code integrity evaluates it.
  *

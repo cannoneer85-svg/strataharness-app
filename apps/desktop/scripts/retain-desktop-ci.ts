@@ -1,4 +1,5 @@
 /** Retain completed CI packages for later manual publication. */
+import { existsSync } from 'node:fs'
 import { appendFile, readFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { desktopTargetBuildPaths, resolveDesktopBuildTarget } from './desktop-build-paths.mjs'
@@ -7,7 +8,11 @@ import { loadDesktopPackageEnvironment } from './desktop-package-environment.mjs
 import { retainDesktopRelease, type DesktopRetainedSource } from './desktop-release-store.ts'
 import { validateDesktopBuildVersion } from './desktop-build-version.mjs'
 import { desktopPublishQualificationError } from './desktop-publish-qualification.mjs'
-import { strataArtifactBaseName } from './strata-desktop-config.mjs'
+import {
+  STRATA_PRODUCT_MANIFEST_FILENAME,
+  resolveStrataProductVersion,
+  strataArtifactBaseName,
+} from './strata-desktop-config.mjs'
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name]
@@ -44,14 +49,17 @@ export async function retainDesktopCi(env: NodeJS.ProcessEnv, appRoot = resolve(
   if (!windows && !['true', 'false'].includes(env.PACKAGE_SKIP_NOTARIZATION ?? '')) throw new Error('desktop retention: invalid notarization selection')
   const qualification = windows ? (env.PACKAGE_SIGNING === 'signed' ? 'signed' : 'unsigned')
     : (env.PACKAGE_SKIP_NOTARIZATION === 'true' ? 'unnotarized' : 'notarized')
-  const product: { version: string } = JSON.parse(await readFile(join(appRoot, 'package.json'), 'utf8'))
-  const version = validateDesktopBuildVersion(required(env, 'PACKAGE_VERSION'), product.version)
+  const repositoryRoot = resolve(appRoot, '..', '..')
+  const productVersion = existsSync(join(repositoryRoot, STRATA_PRODUCT_MANIFEST_FILENAME))
+    ? resolveStrataProductVersion(env, repositoryRoot)
+    : (JSON.parse(await readFile(join(appRoot, 'package.json'), 'utf8')) as { version: string }).version
+  const version = validateDesktopBuildVersion(required(env, 'PACKAGE_VERSION'), productVersion)
   const source: DesktopRetainedSource = {
     repository: required(env, 'GITHUB_REPOSITORY'), runId: required(env, 'GITHUB_RUN_ID'),
     attempt: required(env, 'GITHUB_RUN_ATTEMPT'), commit: required(env, 'PACKAGE_SOURCE_SHA'),
     workflowCommit: required(env, 'GITHUB_SHA'), sourceRef: required(env, 'PACKAGE_SOURCE_REF'),
     channel: resolveDesktopUpdateChannel(settings),
-    runnerName: required(env, 'RUNNER_NAME'), target, preset, productVersion: product.version, version,
+    runnerName: required(env, 'RUNNER_NAME'), target, preset, productVersion, version,
     testReleaseId: preset === 'test' ? (settings.DOWNLOAD_TEST_RELEASE_ID || null) : null,
     qualification,
   }

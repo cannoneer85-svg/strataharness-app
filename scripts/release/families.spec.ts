@@ -208,6 +208,49 @@ describe('release families', () => {
     expect(() => { dsh.verifyVersions([members[0]!]) }).not.toThrow()
   })
 
+  it('accepts dual-track @strata product versions alongside the shared DSH engine version and rejects @strata drift', () => {
+    const dsh = releaseFamily('dsh')
+    const repoMembers = dsh.members(resolve(import.meta.dirname, '../..'))
+    expect(() => { dsh.verifyVersions(repoMembers) }).not.toThrow()
+
+    const strataBundle = { ...member('packages/strata/product-bundle', '@strata/product-bundle'), version: '1.0.0' }
+    const strataBrand = { ...member('packages/strata/ui-brand', '@strata/ui-brand'), version: '1.0.0' }
+    const engineCli = { ...member('apps/cli', '@deepseek-ai/dsh'), version: '0.2.1-rc.4' }
+
+    expect(() => { dsh.verifyVersions([engineCli, strataBundle, strataBrand]) }).not.toThrow()
+    expect(dsh.tagFor(strataBundle)).toBe('strata-v1.0.0')
+    expect(dsh.tagFor(engineCli)).toBe('dsh-v0.2.1-rc.4')
+    expect(() => {
+      dsh.verifyVersions([engineCli, strataBundle, { ...strataBrand, version: '1.0.1' }])
+    }).toThrow(/strata release members must share one version/)
+    expect(() => {
+      dsh.verifyVersions([engineCli, { ...strataBundle, version: 'latest' }])
+    }).toThrow(/unpublishable version/)
+
+    expect(() => {
+      dsh.validatePackedManifest(
+        strataBundle,
+        {
+          name: '@strata/product-bundle',
+          version: '1.0.0',
+          dependencies: { '@deepseek-ai/dsh-agent-preset': '0.2.1-rc.4', '@strata/ui-brand': '~1.0.0' },
+        },
+        [engineCli, strataBundle, strataBrand],
+      )
+    }).not.toThrow()
+    expect(() => {
+      dsh.validatePackedManifest(
+        strataBundle,
+        {
+          name: '@strata/product-bundle',
+          version: '1.0.0',
+          dependencies: { '@deepseek-ai/dsh-agent-preset': '1.0.0' },
+        },
+        [engineCli, strataBundle, strataBrand],
+      )
+    }).toThrow('packed dependencies.@deepseek-ai/dsh-agent-preset must equal 0.2.1-rc.4')
+  })
+
   it('accepts independent vendored versions and rejects an unpublishable one', () => {
     const vendor = releaseFamily('vendor')
     const members = [

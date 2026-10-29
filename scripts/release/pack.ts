@@ -24,14 +24,20 @@ const DEFAULT_OUTPUT = 'dist/npm'
  * @param family - the release family being packed.
  * @param member - the member to pack.
  * @param destination - absolute output directory.
+ * @param members - complete release member set for cross-track dependency checks.
  * @returns The tarball filename.
  */
-function validatePackedMember(family: ReleaseFamily, member: ReleaseMember, destination: string): string {
+function validatePackedMember(
+  family: ReleaseFamily,
+  member: ReleaseMember,
+  destination: string,
+  members: readonly ReleaseMember[],
+): string {
   const filename = tarballName(member)
   const tarball = join(destination, filename)
   if (!existsSync(tarball)) throw new Error(`${member.name} produced no tarball at ${tarball}`)
   family.validatePayload(member, tarballFiles(tarball))
-  family.validatePackedManifest(member, packedManifest(tarball))
+  family.validatePackedManifest(member, packedManifest(tarball), members)
   return filename
 }
 
@@ -51,7 +57,7 @@ async function packMembers(
     for (const member of members) {
       const invocation = pnpmInvocation(['--dir', member.directory, 'pack', '--pack-destination', destination])
       await runConcurrent(invocation.command, invocation.args)
-      order.push(validatePackedMember(family, member, destination))
+      order.push(validatePackedMember(family, member, destination, members))
     }
     return order
   }
@@ -64,7 +70,7 @@ async function packMembers(
     '--pack-destination', destination,
   ])
   await runConcurrent(invocation.command, invocation.args)
-  return members.map(member => validatePackedMember(family, member, destination))
+  return members.map(member => validatePackedMember(family, member, destination, members))
 }
 
 /**

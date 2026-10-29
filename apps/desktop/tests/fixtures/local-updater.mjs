@@ -17,6 +17,14 @@ import { DesktopMandatoryUpdatePolicy, resolveDesktopPolicyConfig } from '../../
 import { DesktopMandatoryUpdateWindow } from '../../lib/types/mandatory-update-window.js'
 import { DesktopUpdatePreparationError } from '../../lib/types/update-error.js'
 import { DesktopUpdateHttpExecutor } from '../../lib/types/update-http-executor.js'
+import { STRATA_HOME_DIR_NAME, resolveDesktopPaths } from '../../lib/types/paths.js'
+import { resolveOptionalDesktopAutoUpdateConfig } from '../../scripts/desktop-auto-update-environment.mjs'
+import {
+  STRATA_DESKTOP_APP_ID,
+  STRATA_DESKTOP_PACKAGE_NAME,
+  STRATA_DESKTOP_URL_SCHEME,
+  resolveStrataProductVersion,
+} from '../../scripts/strata-desktop-config.mjs'
 import { qualifyUpdateDialogs } from './update-dialogs.mjs'
 
 const root = process.env.DSH_LOCAL_UPDATE_TEST_ROOT
@@ -223,6 +231,134 @@ async function main() {
       await check
       assert.equal(f.states.length, 0)
     })
+    await scenario('strataharness-isolated-identity-and-feed-upgrade', async () => {
+      assert.equal(STRATA_DESKTOP_APP_ID, 'com.nikl.strataharness')
+      assert.equal(STRATA_DESKTOP_PACKAGE_NAME, '@strata/desktop')
+      assert.equal(STRATA_DESKTOP_URL_SCHEME, 'strata')
+      assert.equal(STRATA_HOME_DIR_NAME, '.strataharness')
+      const baseProductVersion = resolveStrataProductVersion({})
+      const targetProductVersion = resolveStrataProductVersion({ STRATA_PRODUCT_VERSION: '1.0.1' })
+      assert.equal(baseProductVersion, '1.0.0')
+      assert.equal(targetProductVersion, '1.0.1')
+
+      const strataDirectory = join(root, `strata-${++serial}`)
+      const userDataDirectory = join(strataDirectory, 'userData')
+      const cacheDirectory = join(strataDirectory, 'cache')
+      await mkdir(userDataDirectory, { recursive: true })
+      await mkdir(cacheDirectory, { recursive: true })
+
+      const explicitHome = join(strataDirectory, STRATA_HOME_DIR_NAME)
+      const explicitPaths = resolveDesktopPaths(explicitHome)
+      assert.equal(explicitPaths.profile, join(explicitHome, 'profiles', 'desktop'))
+      assert.equal(explicitPaths.lock, join(explicitHome, 'profiles', 'desktop', 'lock'))
+      const previousDshHome = process.env.DSH_HOME
+      try {
+        delete process.env.DSH_HOME
+        const defaultPaths = resolveDesktopPaths()
+        assert.ok(defaultPaths.profile.includes(`${sep}${STRATA_HOME_DIR_NAME}${sep}`))
+        assert.ok(!defaultPaths.profile.includes(`${sep}.dsh${sep}`))
+        assert.ok(process.env.DSH_HOME?.endsWith(`${sep}${STRATA_HOME_DIR_NAME}`))
+      }
+      finally {
+        if (previousDshHome === undefined) delete process.env.DSH_HOME
+        else process.env.DSH_HOME = previousDshHome
+      }
+
+      assert.equal(
+        resolveOptionalDesktopAutoUpdateConfig(
+          { DSH_DESKTOP_AUTO_UPDATE_ENV: 'production', DSH_DESKTOP_UPDATE_CHANNEL: 'latest' },
+          'win32',
+          'x64',
+        ),
+        undefined,
+      )
+      assert.throws(
+        () => resolveOptionalDesktopAutoUpdateConfig(
+          {
+            DSH_DESKTOP_AUTO_UPDATE_ENV: 'production',
+            DOWNLOAD_PROD_ORIGIN: 'https://download.deepseek.com',
+            DSH_DESKTOP_UPDATE_CHANNEL: 'latest',
+          },
+          'win32',
+          'x64',
+        ),
+        /must not target upstream origin/,
+      )
+      const feedConfig = resolveOptionalDesktopAutoUpdateConfig(
+        {
+          DSH_DESKTOP_AUTO_UPDATE_ENV: 'production',
+          DOWNLOAD_PROD_ORIGIN: 'https://updates.strataharness.example',
+          DSH_DESKTOP_UPDATE_CHANNEL: 'latest',
+        },
+        'win32',
+        'x64',
+      )
+      assert.ok(feedConfig)
+      assert.equal(feedConfig.keyPrefix, 'strataharness/feeds/win-x64')
+      assert.equal(feedConfig.publicUrl, 'https://updates.strataharness.example/strataharness/feeds/win-x64/')
+
+      const configPath = join(strataDirectory, 'app-update.yml')
+      await writeFile(configPath, 'updaterCacheDirName: strataharness-updater\n')
+      const forbidden = () => { throw new Error('Unexpected application quit or relaunch') }
+      const updater = new NsisUpdater(undefined, {
+        version: baseProductVersion,
+        name: STRATA_DESKTOP_PACKAGE_NAME,
+        isPackaged: true,
+        appUpdateConfigPath: configPath,
+        userDataPath: userDataDirectory,
+        baseCachePath: cacheDirectory,
+        whenReady: async () => {},
+        quit: forbidden,
+        relaunch: forbidden,
+        onQuit: forbidden,
+      })
+      updater.logger = null
+      updater.httpExecutor = new DesktopUpdateHttpExecutor(60_000)
+      updater.disableDifferentialDownload = true
+      updater.disableWebInstaller = true
+      updater.setFeedURL({
+        provider: 'generic',
+        url: `${server.origin}/${feedConfig.keyPrefix}/`,
+        channel: feedConfig.channel,
+      })
+      const installations = []
+      const states = []
+      updater.quitAndInstall = (...args) => { installations.push(args) }
+      const coordinator = new DesktopUpdateCoordinator(
+        state => { states.push(state); return state },
+        async () => true,
+        updater,
+        () => true,
+        () => baseProductVersion,
+        undefined,
+        feedConfig.channel,
+      )
+      fixtures.push({ updater, coordinator, installations, states, directory: strataDirectory })
+
+      server.select('healthy', targetProductVersion)
+      const beforeRequests = server.requests.length
+      const available = await coordinator.check(true)
+      assert.equal(available.phase, 'available')
+      assert.equal(available.version, targetProductVersion)
+      assert.ok(server.requests.slice(beforeRequests).includes('/strataharness/feeds/win-x64/latest.yml'))
+
+      const ready = await coordinator.download(available.version)
+      assert.equal(ready.phase, 'ready')
+      assert.equal(ready.version, targetProductVersion)
+      assert.ok(states.some(state => state.phase === 'verifying'))
+      assert.ok(
+        server.requests
+          .slice(beforeRequests)
+          .includes(`/strataharness/feeds/win-x64/strataharness-${targetProductVersion}-win-x64.exe`),
+      )
+      assert.ok(updater.installerPath?.endsWith(`strataharness-${targetProductVersion}-win-x64.exe`))
+      assert.deepEqual(await readFile(updater.installerPath), server.payload)
+      assert.equal(installations.length, 0)
+
+      const installing = await coordinator.install(targetProductVersion)
+      assert.equal(installing.phase, 'installing')
+      assert.deepEqual(installations, [[true, true]])
+    })
     await scenario('ordinary-real-dialog-cancel-and-explicit-install', async () => {
       dialogScreenshots = await qualifyUpdateDialogs(root, fixture)
     })
@@ -294,11 +430,11 @@ async function main() {
         assert.equal(window.isDestroyed(), false)
         assert.equal(f.installations.length, 0)
         await contents.executeJavaScript("document.getElementById('page').click()")
-        await until("document.getElementById('browser-message').textContent.includes('无法打开浏览器')")
+        await until(`document.getElementById('browser-message').textContent === ${JSON.stringify(messages.mandatoryPageFailed)}`)
         assert.deepEqual(opened, ['https://downloads.example.com/desktop'])
         await contents.executeJavaScript("document.getElementById('copy').click()")
         await copyComplete.promise
-        await until("document.getElementById('copy').textContent === '已复制链接'")
+        await until(`document.getElementById('copy').textContent === ${JSON.stringify(messages.mandatoryCopied)}`)
         assert.deepEqual(copied, opened)
         await f.coordinator.check()
         modal.sync()
@@ -308,7 +444,7 @@ async function main() {
         assert.equal(f.coordinator.state.phase, 'downloading')
         assert.equal(await contents.executeJavaScript("document.getElementById('page').hidden"), true)
         server.release()
-        await until("document.getElementById('update').textContent === '停止任务并更新' && !document.getElementById('update').disabled")
+        await until(`document.getElementById('update').textContent === ${JSON.stringify(messages.updateStopTasks)} && !document.getElementById('update').disabled`)
         assert.equal(f.installations.length, 0)
         assert.equal(modal.confirmationWindow, window)
         server.policy('stall')
@@ -322,7 +458,7 @@ async function main() {
         })`)
         assert.deepEqual(snapshot, JSON.parse(await readFile(new URL('../expected/mandatory-update-zh.json', import.meta.url), 'utf8')))
         await contents.executeJavaScript("document.getElementById('later').click()")
-        await until("document.getElementById('update').textContent === '继续安装更新' && !document.getElementById('update').disabled")
+        await until(`document.getElementById('update').textContent === ${JSON.stringify(messages.mandatoryContinue)} && !document.getElementById('update').disabled`)
         assert.equal(f.installations.length, 0)
         let capture
         try { capture = await window.webContents.capturePage() }

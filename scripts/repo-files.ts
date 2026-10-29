@@ -38,11 +38,12 @@ const OPERATIONAL_DOC_PREFIXES = [
   'docs/analysis/',
   'docs/handoff/',
   'docs/specs/',
+  'docs/strata/',
 ] as const
 
 /**
  * Whether a repository path belongs to StrataHarness operational artifacts
- * (`docs/{analysis,handoff,specs}/`) rather than standing product or agent documentation.
+ * (`docs/{analysis,handoff,specs,strata}/`) rather than standing product or agent documentation.
  * @param path - Repository-relative path with forward or platform slashes.
  * @returns True when the path lies inside one of the operational artifact directories.
  */

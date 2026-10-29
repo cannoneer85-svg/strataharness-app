@@ -34,6 +34,7 @@ export const en = {
   aboutMenu: 'About StrataHarness',
   aboutProduct: 'StrataHarness',
   aboutVersion: 'Version V{version}',
+  aboutEngineVersion: 'Engine: DSH {engineVersion}',
   hideApplication: 'Hide StrataHarness',
   hideOtherApplications: 'Hide Others',
   showAllApplications: 'Show All',
@@ -206,6 +207,7 @@ export const zh = {
   aboutMenu: '关于 StrataHarness',
   aboutProduct: 'StrataHarness',
   aboutVersion: '版本 V{version}',
+  aboutEngineVersion: '引擎：DSH {engineVersion}',
   hideApplication: '隐藏 StrataHarness',
   hideOtherApplications: '隐藏其他',
   showAllApplications: '显示全部',
@@ -376,6 +378,23 @@ export function formatDesktopMessage(
   values: Readonly<Record<string, string>>,
 ): string {
   return message.replaceAll(/\{([^{}]+)\}/gu, (placeholder, key: string) => values[key] ?? placeholder)
+}
+
+/**
+ * Format the localized About StrataHarness version detail lines.
+ * @param messages - Selected Desktop dictionary.
+ * @param productVersion - Installed StrataHarness product version.
+ * @param engineVersion - Bundled DSH engine version, when present in the application manifest.
+ * @returns Product version line, followed by the DSH engine line when known.
+ */
+export function formatDesktopAboutDetail(
+  messages: DesktopMessages,
+  productVersion: string,
+  engineVersion?: string,
+): string {
+  const productLine = formatDesktopMessage(messages.aboutVersion, { version: productVersion })
+  if (engineVersion === undefined || engineVersion === '') return productLine
+  return `${productLine}\n${formatDesktopMessage(messages.aboutEngineVersion, { engineVersion })}`
 }
 
 /**

@@ -216,7 +216,13 @@
     "verify-official-bundle-catalog": "tsx scripts/gen-official-bundle-catalog.ts --check",
     "gen-provider-data": "tsx packages/llm/llm-pi-ai/scripts/gen-provider-data.ts",
     "verify-provider-data": "tsx packages/llm/llm-pi-ai/scripts/gen-provider-data.ts --check",
-    "verify-product-use": "tsx scripts/verify-product-use.ts"
+    "verify-product-use": "tsx scripts/verify-product-use.ts",
+    "strata:status": "tsx scripts/strata/fork-ops.ts status",
+    "strata:version": "tsx scripts/strata/fork-ops.ts version",
+    "strata:update-methodology": "tsx scripts/strata/fork-ops.ts update-methodology",
+    "strata:audit-overrides": "tsx scripts/strata/fork-ops.ts audit-overrides",
+    "strata:check-upstream": "tsx scripts/strata/fork-ops.ts check-upstream",
+    "strata:prepare-upstream-sync": "tsx scripts/strata/fork-ops.ts prepare-upstream-sync"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-hooks-claude-code": "workspace:*",

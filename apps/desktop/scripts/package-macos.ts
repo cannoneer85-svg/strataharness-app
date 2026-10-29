@@ -1,6 +1,7 @@
 /** Build the ZIP and DMG from separate signed application copies with overlapping notarization. */
 
 import { execFile } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { mkdtemp, rename, rm, stat } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { promisify } from 'node:util'
@@ -12,7 +13,7 @@ import {
 } from './desktop-release-environment.mjs'
 import {
   desktopUpdateMetadataFilename,
-  resolveDesktopAutoUpdateConfig,
+  resolveOptionalDesktopAutoUpdateConfig,
 } from './desktop-auto-update-environment.mjs'
 import { verifyMacOSAppUpdateConfig } from './macos-app-update-config.mjs'
 import { verifyMacOSNotarizedApplication, verifyMacOSSignature } from './verify-macos-signature.mjs'
@@ -78,7 +79,7 @@ export async function packageMacOSArtifacts(
   const secrets = Object.entries(environment).filter(([name]) => /KEY|SECRET|TOKEN|PASSWORD|APPLE_ID/iu.test(name)).map(([, value]) => value ?? '')
   const expected = resolveMacOSSigningEnvironment(environment)
   const credentials = resolveMacOSNotarizationEnvironment(environment)
-  const update = resolveDesktopAutoUpdateConfig(environment, 'darwin', arch)
+  const update = resolveOptionalDesktopAutoUpdateConfig(environment, 'darwin', arch)
   const appPath = join(artifactsRoot, arch === 'arm64' ? 'mac-arm64' : 'mac', `${STRATA_DESKTOP_PRODUCT_NAME}.app`)
   const root = await mkdtemp(join(dirname(artifactsRoot), 'notarization-'))
   const zipApp = join(root, 'zip', basename(appPath))
@@ -86,11 +87,13 @@ export async function packageMacOSArtifacts(
   const zipOutput = join(root, 'zip-artifacts')
   const dmgOutput = join(root, 'dmg-artifacts')
   try {
-    await verifyMacOSAppUpdateConfig(appPath, update)
+    if (update !== undefined) await verifyMacOSAppUpdateConfig(appPath, update)
     await apple.copyApp(appPath, zipApp)
     await apple.copyApp(appPath, dmgApp)
-    await verifyMacOSAppUpdateConfig(zipApp, update)
-    await verifyMacOSAppUpdateConfig(dmgApp, update)
+    if (update !== undefined) {
+      await verifyMacOSAppUpdateConfig(zipApp, update)
+      await verifyMacOSAppUpdateConfig(dmgApp, update)
+    }
     apple.verifySignature(zipApp, expected)
     apple.verifySignature(dmgApp, expected)
     const results = await Promise.allSettled([
@@ -107,17 +110,23 @@ export async function packageMacOSArtifacts(
     if (failures.length > 0) {
       throw new AggregateError(failures.map(result => result.reason), 'desktop macOS packaging: artifact lanes failed')
     }
-    await verifyMacOSAppUpdateConfig(zipApp, update)
-    await verifyMacOSAppUpdateConfig(dmgApp, update)
+    if (update !== undefined) {
+      await verifyMacOSAppUpdateConfig(zipApp, update)
+      await verifyMacOSAppUpdateConfig(dmgApp, update)
+    }
     apple.verifySignature(zipApp, expected)
     apple.verifySignature(dmgApp, expected)
     const base = strataArtifactBaseName(version, `mac-${arch}`)
-    const artifacts = [
+    const artifacts: Array<readonly [string, string]> = [
       [dmgOutput, `${base}.dmg`],
       [zipOutput, `${base}.zip`],
-      [zipOutput, `${base}.zip.blockmap`],
-      [zipOutput, desktopUpdateMetadataFilename(version, 'darwin', update.channel)],
-    ] as const
+      ...(update === undefined
+        ? (existsSync(join(zipOutput, `${base}.zip.blockmap`)) ? [[zipOutput, `${base}.zip.blockmap`] as const] : [])
+        : [
+          [zipOutput, `${base}.zip.blockmap`] as const,
+          [zipOutput, desktopUpdateMetadataFilename(version, 'darwin', update.channel)] as const,
+        ]),
+    ]
     for (const [output, filename] of artifacts) {
       const file = join(output, filename)
       const details = await stat(file)

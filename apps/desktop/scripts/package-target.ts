@@ -6,11 +6,18 @@ import { parseArgs } from 'node:util'
 import { join, resolve } from 'node:path'
 import {
   desktopBuildRecordFilename,
-  resolveDesktopAutoUpdateConfig,
+  resolveDesktopAutoUpdateEnvironment,
+  resolveDesktopUpdateChannel,
+  resolveOptionalDesktopAutoUpdateConfig,
 } from './desktop-auto-update-environment.mjs'
 import { desktopArtifactOutput, desktopTargetBuildPaths } from './desktop-build-paths.mjs'
 import { packageMacOSArtifacts, type DesktopPrepackagedArtifact } from './package-macos.ts'
-import { loadDesktopPackageEnvironment, localMacOSPackageEnvironment, validateDesktopPackageEnvironment } from './desktop-package-environment.mjs'
+import {
+  ciDesktopPackageEnvironment,
+  loadDesktopPackageEnvironment,
+  localMacOSPackageEnvironment,
+  validateDesktopPackageEnvironment,
+} from './desktop-package-environment.mjs'
 import { createPackagingRun, recordPackagingEvent } from './packaging-run.mjs'
 import { withWindowsSigningStage } from './windows-signing-stage.mjs'
 import { prepareWindowsSignatureCacheDirectory, resolveWindowsSignatureCacheDirectory } from './windows-signature-cache-directory.mjs'
@@ -24,7 +31,8 @@ import { suggestDesktopBuildVersion } from './desktop-build-version-discovery.ts
 import { desktopBuildCommitEnvironment, readDesktopBuildCommit, resolveDesktopBuildCommit } from './desktop-build-commit.mjs'
 import { requireDesktopToolchain } from './desktop-toolchain-preflight.ts'
 import { withMacOSNotarizationProxy } from './macos-notarization-proxy.ts'
-import { STRATA_DESKTOP_PRODUCT_NAME, strataArtifactBaseName } from './strata-desktop-config.mjs'
+import { STRATA_DESKTOP_PRODUCT_NAME, resolveStrataProductVersion, strataArtifactBaseName } from './strata-desktop-config.mjs'
+import { STRATA_SIGNING_MODE_ENV, resolveStrataSigningMode } from './strata-signing-mode.mjs'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const REPOSITORY_ROOT = resolve(APP_ROOT, '..', '..')
@@ -34,8 +42,11 @@ const WINDOWS_SIGNING_ENV_NAMES = [
   'DSH_DESKTOP_WINDOWS_KEY_CONTAINER',
   'DSH_DESKTOP_WINDOWS_SIGNTOOL',
   'DSH_DESKTOP_WINDOWS_TOKEN_PIN',
+  'DSH_DESKTOP_WINDOWS_PUBLISHER_NAME',
   'DSH_DESKTOP_WINDOWS_SIGNATURE_CACHE_DIR',
   'DSH_DESKTOP_WINDOWS_SIGNATURE_CACHE_CONCURRENCY',
+  'WIN_CSC_LINK',
+  'WIN_CSC_KEY_PASSWORD',
 ] as const
 const DESKTOP_UPLOAD_CREDENTIAL_ENV_NAMES = new Set([
   'DOWNLOAD_TEST_COS_SECRET_ID',
@@ -90,7 +101,7 @@ const TARGETS: Record<DesktopPackageTargetName, DesktopPackageTarget> = {
  */
 export function withoutWindowsSigningEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return Object.fromEntries(Object.entries(environment)
-    .filter(([name]) => !name.startsWith(WINDOWS_SIGNING_ENV_PREFIX)))
+    .filter(([name]) => !name.startsWith(WINDOWS_SIGNING_ENV_PREFIX) && !name.startsWith('WIN_CSC_')))
 }
 
 /**
@@ -144,18 +155,18 @@ function writeReleaseRecord(
   if (desktopVersion !== dshVersion) {
     throw new Error(`desktop package: desktop version ${desktopVersion} does not match dsh version ${dshVersion}`)
   }
-  const buildVersion = resolveDesktopBuildVersion(environment, dshVersion)
+  const buildVersion = resolveDesktopBuildVersion(environment, resolveStrataProductVersion(environment, REPOSITORY_ROOT))
   const packaged = resolveDesktopBuildCommit(environment)
-  const update = resolveDesktopAutoUpdateConfig(environment, target.platform, target.arch)
+  const update = resolveOptionalDesktopAutoUpdateConfig(environment, target.platform, target.arch)
   const recordPath = join(artifactsRoot, desktopBuildRecordFilename(target.name))
   const temporaryPath = `${recordPath}.tmp`
   writeFileSync(temporaryPath, `${JSON.stringify({
     schemaVersion: 1,
     target: target.name,
     version: buildVersion,
-    environment: update.environment,
-    channel: update.channel,
-    publicUrl: update.publicUrl,
+    environment: update?.environment ?? resolveDesktopAutoUpdateEnvironment(environment),
+    channel: update?.channel ?? resolveDesktopUpdateChannel(environment),
+    publicUrl: update?.publicUrl ?? null,
     // Upload reads this to tag the commit a production release was packaged from.
     ...packaged === undefined ? {} : { commit: packaged.commit, dirty: packaged.dirty },
   }, null, 2)}\n`)
@@ -339,21 +350,37 @@ async function resolveRequestedBuildVersion(
 }
 
 async function main(): Promise<void> {
-  const invocation = parseDesktopPackageInvocation(process.argv.slice(2))
+  const parsedInvocation = parseDesktopPackageInvocation(process.argv.slice(2))
+  const configuredSigningMode = process.env[STRATA_SIGNING_MODE_ENV]?.trim()
+  const resolvedSigning = configuredSigningMode !== undefined && configuredSigningMode !== '' && !parsedInvocation.unsigned
+    ? resolveStrataSigningMode({
+      mode: configuredSigningMode,
+      platform: parsedInvocation.target.platform,
+      skipNotarization: parsedInvocation.skipNotarization,
+      env: process.env,
+    })
+    : undefined
+  const invocation: DesktopPackageInvocation = resolvedSigning?.unsigned
+    ? { ...parsedInvocation, unsigned: true }
+    : parsedInvocation
   const { target } = invocation
   if (invocation.skipNotarization) {
     process.stdout.write('desktop package: skipping notarization and stapling; internal debugging only, not qualified for distribution or update publishing\n')
   }
+  const hasPlatformEnvFile = existsSync(join(APP_ROOT, target.platform === 'win32' ? '.env.windows' : '.env.macos'))
   const localUnsigned = invocation.unsigned
     || (invocation.check
+      && resolvedSigning === undefined
       && process.env.DSH_PACKAGING_PRESET === undefined
-      && !existsSync(join(APP_ROOT, target.platform === 'win32' ? '.env.windows' : '.env.macos')))
+      && !hasPlatformEnvFile)
   const environment = localUnsigned
     ? localMacOSPackageEnvironment()
-    : loadDesktopPackageEnvironment(target.platform, process.env, APP_ROOT, {
-      unsigned: invocation.unsigned, prepareOnly: invocation.prepareOnly,
-    })
-  const productVersion = packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')
+    : (resolvedSigning !== undefined && process.env.DSH_PACKAGING_PRESET === undefined && !hasPlatformEnvFile
+      ? ciDesktopPackageEnvironment()
+      : loadDesktopPackageEnvironment(target.platform, process.env, APP_ROOT, {
+        unsigned: invocation.unsigned, prepareOnly: invocation.prepareOnly,
+      }))
+  const productVersion = resolveStrataProductVersion(environment, REPOSITORY_ROOT)
   // Release settings come from the selected configuration files, so the version this run publishes is an
   // argument; the environment variable below only carries it to the child processes that build.
   const buildVersion = await resolveRequestedBuildVersion(invocation, productVersion, environment)
@@ -406,8 +433,9 @@ async function main(): Promise<void> {
   if (success && target.platform === 'darwin' && !invocation.directory && !invocation.prepareOnly) {
     const paths = desktopTargetBuildPaths(target.name)
     const output = desktopArtifactOutput(paths, invocation)
-    const filename = `${strataArtifactBaseName(buildVersion, `mac-${target.arch}`)}${output.suffix}.dmg`
-    console.log(`DMG: ${join(output.directory, filename)}`)
+    const base = `${strataArtifactBaseName(buildVersion, `mac-${target.arch}`)}${output.suffix}`
+    console.log(`DMG: ${join(output.directory, `${base}.dmg`)}`)
+    console.log(`ZIP: ${join(output.directory, `${base}.zip`)}`)
   }
 }
 
@@ -513,7 +541,7 @@ export async function packageTarget(
     await withMacOSNotarizationProxy(mac?.notarizationProxy, () => packageMacOSArtifacts({
       arch: target.arch,
       // electron-builder named these artifacts after the published version, so locating them uses the same identifier.
-      version: resolveDesktopBuildVersion(environment, packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')),
+      version: resolveDesktopBuildVersion(environment, resolveStrataProductVersion(environment, REPOSITORY_ROOT)),
       artifactsRoot: buildPaths.artifacts,
       environment: electronBuilderEnv,
     }, artifact => execute(desktopElectronBuilderArguments(target, false, artifact), electronBuilderEnv)), undefined, undefined, proxyEvent)

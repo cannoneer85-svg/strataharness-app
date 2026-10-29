@@ -1,13 +1,17 @@
 /** Validate machine-owned macOS signing settings and record a manual Actions build version. */
-import { appendFileSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { appendFileSync, existsSync, readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { desktopCiVersion } from './desktop-ci-version.mjs'
 import { loadDesktopPackageEnvironment, validateDesktopPackageEnvironment } from './desktop-package-environment.mjs'
+import { STRATA_PRODUCT_MANIFEST_FILENAME, resolveStrataProductVersion } from './strata-desktop-config.mjs'
 
 const appRoot = resolve(import.meta.dirname, '..')
-const product = JSON.parse(readFileSync(resolve(appRoot, 'package.json'), 'utf8'))
-const version = desktopCiVersion(process.env, product.version)
+const repositoryRoot = resolve(appRoot, '..', '..')
+const productVersion = existsSync(join(repositoryRoot, STRATA_PRODUCT_MANIFEST_FILENAME))
+  ? resolveStrataProductVersion(process.env, repositoryRoot)
+  : JSON.parse(readFileSync(resolve(appRoot, 'package.json'), 'utf8')).version
+const version = desktopCiVersion(process.env, productVersion)
 if (!process.env.DSH_PACKAGING_PRESET) throw new Error('Select a machine preset')
 const skipNotarization = process.env.PACKAGE_SKIP_NOTARIZATION === 'true'
 if (!['true', 'false', undefined].includes(process.env.PACKAGE_SKIP_NOTARIZATION)) throw new Error('Invalid skip notarization selection')

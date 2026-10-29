@@ -118,7 +118,10 @@ export async function signWindowsCode(root, options) {
   options.record({ type: 'windows-code-signing-plan', files: files.length, unsigned: unsigned.length })
   async function verifySigned(path) {
     const signature = await inspect(path)
-    if (signature.status !== 'Valid' || !signature.timestamped || signature.thumbprint?.toUpperCase() !== options.thumbprint.toUpperCase()) {
+    const matchesThumbprint = options.thumbprint !== undefined
+      ? signature.thumbprint?.toUpperCase() === options.thumbprint.toUpperCase()
+      : Boolean(signature.thumbprint)
+    if (signature.status !== 'Valid' || !signature.timestamped || !matchesThumbprint) {
       throw new Error(`Windows code: signing verification failed: ${path}`)
     }
     options.record({ type: 'windows-code-signature-verified', path, ...signature })

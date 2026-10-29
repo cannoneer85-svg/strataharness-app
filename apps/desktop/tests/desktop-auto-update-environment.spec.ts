@@ -28,9 +28,9 @@ describe('desktop auto-update environment', () => {
   ('uses one test release directory for %s %s feeds and binaries', (platform, arch, target) => {
     expect(resolveDesktopAutoUpdateConfig({ DOWNLOAD_TEST_ORIGIN: 'https://updates.example.com',
       DOWNLOAD_TEST_RELEASE_ID: RELEASE_ID }, platform, arch)).toMatchObject({
-      publicUrl: `https://updates.example.com/dsh-desk/${RELEASE_ID}/feeds/${target}/`,
-      keyPrefix: `dsh-desk/${RELEASE_ID}/feeds/${target}`,
-      binaryKeyPrefix: `dsh-desk/${RELEASE_ID}/bin/${target}`,
+      publicUrl: `https://updates.example.com/strataharness/${RELEASE_ID}/feeds/${target}/`,
+      keyPrefix: `strataharness/${RELEASE_ID}/feeds/${target}`,
+      binaryKeyPrefix: `strataharness/${RELEASE_ID}/bin/${target}`,
     })
   })
 
@@ -43,9 +43,9 @@ describe('desktop auto-update environment', () => {
       environment: 'test', channel: 'nightly',
       target: 'mac-arm64',
       origin: 'https://desktop-updates.example.com',
-      publicUrl: `https://desktop-updates.example.com/dsh-desk/${RELEASE_ID}/feeds/mac-arm64/`,
-      keyPrefix: `dsh-desk/${RELEASE_ID}/feeds/mac-arm64`,
-      binaryKeyPrefix: `dsh-desk/${RELEASE_ID}/bin/mac-arm64`,
+      publicUrl: `https://desktop-updates.example.com/strataharness/${RELEASE_ID}/feeds/mac-arm64/`,
+      keyPrefix: `strataharness/${RELEASE_ID}/feeds/mac-arm64`,
+      binaryKeyPrefix: `strataharness/${RELEASE_ID}/bin/mac-arm64`,
     })
     expect(resolveDesktopUploadConfig({
       DOWNLOAD_TEST_ORIGIN: 'https://desktop-updates.example.com/',
@@ -66,8 +66,8 @@ describe('desktop auto-update environment', () => {
     }, 'win32', 'x64')).toMatchObject({
       environment: 'production',
       target: 'win-x64',
-      publicUrl: 'https://downloads.example.com/dsh-desk/feeds/win-x64/',
-      binaryKeyPrefix: 'dsh-desk/bin/win-x64',
+      publicUrl: 'https://downloads.example.com/strataharness/feeds/win-x64/',
+      binaryKeyPrefix: 'strataharness/bin/win-x64',
     })
     expect(resolveDesktopUploadConfig({
       DSH_DESKTOP_AUTO_UPDATE_ENV: 'production',
