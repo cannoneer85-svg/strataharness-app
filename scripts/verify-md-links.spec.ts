@@ -45,16 +45,24 @@ describe('Markdown source discovery', () => {
       ])
   })
 
-  it('checks package instructions and nested docs while excluding frozen notes', () => {
+  it('checks .agents docs, package instructions, and nested docs while excluding frozen notes, operational artifacts, and scaffold templates', () => {
     const root = layout({
+      '.agents/SKILLS.md': '[missing](missing.md)\n',
+      'docs/agents/domain.md': '[missing](missing.md)\n',
+      'docs/handoff/LATEST.md': '[scratch](../../.scratch/feat/issues/01-task.md)\n',
       'packages/AGENTS.md': '[missing](missing.md)\n',
       'packages/core/README.md': '[missing](missing.md)\n',
       'packages/core/probe/README.md': '[missing](missing.md)\n',
+      '.agents/skills/init-project/SKILL.md': '[missing](missing.md)\n',
+      '.agents/skills/init-project/templates/README.md': '[dest-relative](AGENTS.md)\n',
       '.agents/notes/archived/process/frozen.md': '[historical](missing.md)\n',
     })
     const sources = markdownLinkSourcePaths(root)
     const violations = sources.flatMap(file => findViolations(join(root, file), markdownLinkCache(), root))
     expect(violations.map(({ file }) => file).sort()).toEqual([
+      join('.agents', 'SKILLS.md'),
+      join('.agents', 'skills', 'init-project', 'SKILL.md'),
+      join('docs', 'agents', 'domain.md'),
       join('packages', 'AGENTS.md'),
       join('packages', 'core', 'README.md'),
       join('packages', 'core', 'probe', 'README.md'),

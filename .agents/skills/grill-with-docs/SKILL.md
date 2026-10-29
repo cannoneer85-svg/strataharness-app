@@ -1,0 +1,38 @@
+---
+name: grill-with-docs
+description: A relentless interview to sharpen a plan or design, which also creates docs (ADR's and glossary) as we go.
+disable-model-invocation: true
+---
+
+Call the Skill tool twice, for "grilling" and "domain-modeling".
+
+---
+
+## Silent Investigation
+
+Before formulating questions for Round 1, independently inspect the affected modules, codebases, tests, and documentation in the repository. Do not ask the user for facts, existing types, or current behavior that can be read directly from the codebase. The interview is strictly for settling open architectural forks, trade-offs, scope boundaries, and MVP decisions that repository context cannot answer on its own.
+
+## Rounds
+
+The mandatory rounds per Category are set in the Routes table of the root `AGENTS.md`. There is no upper question cap: ask until no open architectural, interface, or MVP boundary decisions remain, settling implementation trivia with sensible defaults yourself. A stop command from the user (such as «хватит / пиши спеку») halts the interview immediately, closing all remaining rounds; record the open decision frontier as assumptions in `.scratch/<feature>/OPEN_QUESTIONS.md`, and `/to-spec` lists them under Further Notes. A route with N mandatory rounds runs the first N themes below, in order; adapt each theme to the domain (UI, API, data, hardware, documents):
+
+1. **Outline and happy path** — core intent, scope and MVP boundaries, interfaces and contracts, the main flow. On the Minor route this single round covers the immediate design choices.
+2. **Errors and edge cases** — invalid input, failure states, degradation and recovery, concurrency, boundary conditions.
+3. **NFR** — performance, security, resource and token limits, observability, deployment.
+
+Within a round, work the grilling frontier; follow-up questions raised by the user's answers stay in the same round, dynamically branching down the decision tree. Settle prerequisite choices before introducing downstream decisions. A round is done when its theme's frontier is empty and its answers are in the log, or when the user halts the interview. Offer the next stage (`/to-spec`; on Minor, implementation) only once every mandatory round of the current Category is done. If an interview on the Minor route uncovers more than 4 decision branches, announce re-categorisation to Feature immediately and run Round 2.
+
+## Question format
+
+Ask each round through the harness's interactive question tool when it has one, with your recommended answer as the first option. Without such a tool, use the `grilling` question format.
+
+## Interview log
+
+Keep the log at `.scratch/<feature>/OPEN_QUESTIONS.md`, where `<feature>` is the kebab-case feature slug that the spec and tickets reuse. Create it with the first round. After each round, append:
+
+- the round number and theme;
+- each question with the user's answer;
+- the decisions that follow;
+- questions still open.
+
+Terms still go into the glossary the moment they resolve (domain-modeling). ADR candidates — decisions meeting domain-modeling's three criteria — go into an **ADR candidates** section of the log instead of writing decision files immediately; `/to-spec` records accepted candidates as Agent Notes under `.agents/notes/` per [`.agents/notes/README.md`](../../notes/README.md). On the Minor route, which has no spec stage, offer each candidate as an Agent Note at the interview stop gate.

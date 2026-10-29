@@ -1,0 +1,5 @@
+interface:
+  display_name: "Translate Docs"
+  short_description: "Translate or re-pair bilingual documentation on explicit user invocation"
+policy:
+  allow_implicit_invocation: false

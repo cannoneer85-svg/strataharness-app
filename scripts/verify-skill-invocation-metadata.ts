@@ -27,35 +27,64 @@ function parseSkillFrontmatter(source: string): Record<string, unknown> {
   return metadata
 }
 
-/** Find repository skill directories that carry Codex product metadata. */
-function skillDirectories(root: string): string[] {
+/** Find all repository skill directories under `.agents/skills`. */
+function allSkillDirectories(root: string): string[] {
   const skillsRoot = resolve(root, '.agents/skills')
   if (!existsSync(skillsRoot)) return []
   return readdirSync(skillsRoot, { withFileTypes: true })
-    .filter(entry => entry.isDirectory() && existsSync(resolve(skillsRoot, entry.name, 'agents/openai.yaml')))
+    .filter(entry => entry.isDirectory())
     .map(entry => entry.name)
     .sort()
 }
 
+/** Extract skill directory names registered in `.agents/SKILLS.md` table rows. */
+function registeredSkills(registrySource: string): string[] {
+  const names: string[] = []
+  for (const match of registrySource.matchAll(/^\|\s*\[[^\]]+\]\(skills\/([^/)\s]+)\/SKILL\.md\)/gm)) {
+    const name = match[1]
+    if (name !== undefined) names.push(name)
+  }
+  return names
+}
+
 /**
- * Report cross-product invocation-policy mismatches for repository skills.
- * @param root - Repository root containing `.agents/skills`.
- * @returns diagnostics for malformed metadata or policies that expose a skill differently.
+ * Report cross-product invocation-policy and skill-registry mismatches for repository skills.
+ * @param root - Repository root containing `.agents/skills` and optional `.agents/SKILLS.md`.
+ * @returns diagnostics for malformed metadata, unregistered skills, or divergent invocation policies.
  */
 export function collectSkillInvocationMetadataViolations(root: string): string[] {
   const violations: string[] = []
+  const skills = allSkillDirectories(root)
 
-  for (const skill of skillDirectories(root)) {
+  const registryFile = resolve(root, '.agents/SKILLS.md')
+  if (existsSync(registryFile)) {
+    const listed = registeredSkills(readFileSync(registryFile, 'utf8'))
+    const counts = new Map<string, number>()
+    for (const name of listed) counts.set(name, (counts.get(name) ?? 0) + 1)
+    for (const [name, count] of [...counts.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+      if (count > 1) violations.push(`.agents/SKILLS.md: skill '${name}' is listed ${String(count)} times`)
+      if (!skills.includes(name)) violations.push(`.agents/SKILLS.md: registered skill '${name}' has no .agents/skills/${name} directory`)
+    }
+    for (const skill of skills) {
+      if (!counts.has(skill)) violations.push(`.agents/skills/${skill}: missing from .agents/SKILLS.md`)
+    }
+  }
+
+  for (const skill of skills) {
     const relativeRoot = `.agents/skills/${skill}`
     const skillFile = resolve(root, relativeRoot, 'SKILL.md')
     const openaiFile = resolve(root, relativeRoot, 'agents/openai.yaml')
+    const hasOpenaiFile = existsSync(openaiFile)
     if (!existsSync(skillFile)) {
-      violations.push(`${relativeRoot}: agents/openai.yaml has no sibling SKILL.md`)
+      violations.push(
+        hasOpenaiFile
+          ? `${relativeRoot}: agents/openai.yaml has no sibling SKILL.md`
+          : `${relativeRoot}: skill directory has no SKILL.md`,
+      )
       continue
     }
 
     let frontmatter: Record<string, unknown>
-    let openai: Record<string, unknown>
     try {
       frontmatter = parseSkillFrontmatter(readFileSync(skillFile, 'utf8'))
     }
@@ -63,14 +92,9 @@ export function collectSkillInvocationMetadataViolations(root: string): string[]
       violations.push(`${relativeRoot}/SKILL.md: ${error instanceof Error ? error.message : String(error)}`)
       continue
     }
-    try {
-      const parsed = asRecord(load(readFileSync(openaiFile, 'utf8')))
-      if (parsed === undefined) throw new Error('agents/openai.yaml must be a YAML object')
-      openai = parsed
-    }
-    catch (error) {
-      violations.push(`${relativeRoot}/agents/openai.yaml: ${error instanceof Error ? error.message : String(error)}`)
-      continue
+
+    if (frontmatter.name !== skill) {
+      violations.push(`${relativeRoot}/SKILL.md: frontmatter name '${String(frontmatter.name)}' must match directory '${skill}'`)
     }
 
     const disableModelInvocation = frontmatter['disable-model-invocation']
@@ -84,6 +108,29 @@ export function collectSkillInvocationMetadataViolations(root: string): string[]
       continue
     }
 
+    const claudeManualOnly = disableModelInvocation === true
+    if (claudeManualOnly && userInvocable === false) {
+      violations.push(`${relativeRoot}/SKILL.md: a manual-only skill must remain user-invocable`)
+    }
+
+    if (!hasOpenaiFile) {
+      if (claudeManualOnly) {
+        violations.push(`${relativeRoot}: Claude Code manual-only=true requires agents/openai.yaml with policy.allow_implicit_invocation=false`)
+      }
+      continue
+    }
+
+    let openai: Record<string, unknown>
+    try {
+      const parsed = asRecord(load(readFileSync(openaiFile, 'utf8')))
+      if (parsed === undefined) throw new Error('agents/openai.yaml must be a YAML object')
+      openai = parsed
+    }
+    catch (error) {
+      violations.push(`${relativeRoot}/agents/openai.yaml: ${error instanceof Error ? error.message : String(error)}`)
+      continue
+    }
+
     const policy = asRecord(openai.policy)
     const allowImplicitInvocation = policy?.allow_implicit_invocation
     if (allowImplicitInvocation !== undefined && typeof allowImplicitInvocation !== 'boolean') {
@@ -91,7 +138,6 @@ export function collectSkillInvocationMetadataViolations(root: string): string[]
       continue
     }
 
-    const claudeManualOnly = disableModelInvocation === true
     const codexManualOnly = allowImplicitInvocation === false
     if (claudeManualOnly !== codexManualOnly) {
       violations.push(
@@ -99,16 +145,13 @@ export function collectSkillInvocationMetadataViolations(root: string): string[]
         + ` but Codex manual-only=${String(codexManualOnly)}`,
       )
     }
-    if (claudeManualOnly && userInvocable === false) {
-      violations.push(`${relativeRoot}/SKILL.md: a manual-only skill must remain user-invocable`)
-    }
   }
 
   return violations
 }
 
 if (process.argv[1] && import.meta.filename === resolve(process.argv[1])) {
-  const skills = skillDirectories(ROOT)
+  const skills = allSkillDirectories(ROOT)
   const violations = collectSkillInvocationMetadataViolations(ROOT)
   if (violations.length > 0) {
     process.stderr.write('verify-skill-invocation-metadata: violations found:\n')
@@ -117,6 +160,6 @@ if (process.argv[1] && import.meta.filename === resolve(process.argv[1])) {
   }
 
   process.stdout.write(
-    `verify-skill-invocation-metadata: ${String(skills.length)} cross-product skill policy pair(s) aligned.\n`,
+    `verify-skill-invocation-metadata: ${String(skills.length)} skill(s) verified.\n`,
   )
 }

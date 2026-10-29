@@ -1,6 +1,51 @@
 # AGENTS.md
 
-DeepSeek Harness is an all-plugin Cordis agent harness. Read [docs/architecture.md](docs/architecture.md) before changing `packages/`; follow [docs/AGENTS.md](docs/AGENTS.md) for documentation.
+DeepSeek Harness is an all-plugin Cordis agent harness using the StrataHarness 6-stage lifecycle ([.agents/CONTEXT.md](.agents/CONTEXT.md), [.agents/SKILLS.md](.agents/SKILLS.md)). Route every task through **Step 0** before edits; read [docs/architecture.md](docs/architecture.md) before changing `packages/` and follow [docs/AGENTS.md](docs/AGENTS.md) for documentation.
+
+## Step 0 — classify before any work
+
+Check `.scratch/` first: if the request continues an active `.scratch/<feature>/`, resume via [docs/handoff/LATEST.md](docs/handoff/LATEST.md) and `.scratch/<feature>/TICKETS.md` without re-interviewing (ask if multiple features are ambiguous). For a new task, skip past handoffs, announce **Type** (`Development` — changes code/config/tests/scripts; `Analysis` — produces a `docs/analysis/` finding without code changes) and, for `Development`, **Category** with a one-line signal summary, then stop at the Step 0 stop gate for confirmation. Re-categorize up or down whenever interview answers change the scale.
+
+## Stages and routes
+
+One stage per response; every stage ends at a stop gate. Stage skills are manual-only — once confirmed, read the stage's `SKILL.md` by path and follow it:
+
+| # | Stage | Skill | Stop gate — show, then wait for |
+|---|---|---|---|
+| 1 | Interview | [grill-with-docs](.agents/skills/grill-with-docs/SKILL.md); Fog: [wayfinder](.agents/skills/wayfinder/SKILL.md) | interview summary; next-stage approval |
+| 2 | Spec | [to-spec](.agents/skills/to-spec/SKILL.md) | spec approval |
+| 3 | Tickets | [to-tickets](.agents/skills/to-tickets/SKILL.md) | ticket list, order, and strategy approval |
+| 4 | Implementation | [implement](.agents/skills/implement/SKILL.md) | green verification report; review approval |
+| 5 | Review | [code-review](.agents/skills/code-review/SKILL.md) | review fixed; explicit close/handoff command |
+| 6 | Close | [close-task](.agents/skills/close-task/SKILL.md) | terminal |
+
+| Route / Category | Signals | Stages | Interview mandatory rounds |
+|---|---|---|---|
+| Minor | 1–2 files, 1 module, clear intent, reversible, no migrations/new contracts/integrations | 1 → 4 (In-Place) → 5 → 6 | 1 round: Outline & happy path |
+| Feature | 1 subsystem; new screen/endpoint/tool/plugin/entity; reversible or adjacent migration; 1 session | 1 → 2 → 3 → 4 (In-Place 1–2; Orchestrator ≥3) → 5 → 6 | 2 rounds: Happy path + Errors & edge cases |
+| Epic | multi-package; major intent gaps; cross-cutting contracts or native/protocol integration | 1 → 2 → 3 → 4 (Orchestrator) → 5 → 6 | 3 rounds: Happy path + Errors & edge cases + NFR |
+| Fog (Туман) | path not visible; fundamental unknowns; >1 session | 1 (wayfinder) → 2 → 3 → 4 → 5 → 6 | set by wayfinder |
+| Analysis | finding/audit document only; code unchanged | [analyze](.agents/skills/analyze/SKILL.md): interview ⛔ → work → `docs/analysis/` ⛔ → close | 1 short round: 4 points |
+
+- **Interview:** no question cap — ask via `ask_question` / `AskUserQuestion` (numbered text fallback only if no interactive question tool exists) until no open architectural, contract, or MVP decisions remain (settle trivia yourself); keep follow-ups in the active round; escalate `Minor` → `Feature` if >4 open decision branches appear; halt remaining rounds immediately on a user stop phrase («хватит / пиши спеку»), logging open assumptions in `.scratch/<feature>/OPEN_QUESTIONS.md`.
+- **Stop gates:** at every stop gate (Step 0, Stages 1–5, Analysis), deliver **both** in the same turn: (1) full deliverable/report in message text ending with numbered options (`1. (Recommended)` approve next stage/action, `2.` adjust; Stage 5 lists `1.` `/close-task`, `2.` `/handoff`, `3.` edits, `4.` `/retro`), and (2) `ask_question` / `AskUserQuestion` with matching options.
+- **Hard git guardrail:** run [handoff](.agents/skills/handoff/SKILL.md), [close-task](.agents/skills/close-task/SKILL.md), `git commit`, `git push`, or `.scratch/` cleanup ONLY on an explicit user command («закрывай задачу», «фиксируй», «делай handoff», or Stage 5 selection); `/close-task` and `/handoff` never push.
+- **Context budget:** Smart zone ≈120k tokens; pick **In-Place** (Minor or 1–2 tickets ≤60k), **Sequential Subagents / Orchestrator** (mandatory for ≥3 tickets, or 2 tickets touching files >1,000 lines or >60k), or **Multi-Session** ([implement](.agents/skills/implement/SKILL.md)).
+- **Language & skill sync:** reply to the user and write operational artifacts (`docs/{specs,handoff,analysis}/`, `.scratch/`, [.agents/CONTEXT.md](.agents/CONTEXT.md), [.agents/SKILLS.md](.agents/SKILLS.md)) in Russian; keep code, JSDoc, skills, commits, PRs, and product docs in English ([docs/AGENTS.md](docs/AGENTS.md)). Skill edits must update [.agents/SKILLS.md](.agents/SKILLS.md) and pass `.agents/scripts/Sync-ClaudeSkills.ps1`, `.agents/scripts/Test-Template.ps1`, and `pnpm run verify-skill-invocation-metadata`.
+
+## Agent skills
+
+### Issue tracker
+
+Local Markdown under `.scratch/<feature>/issues/`. See [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md).
+
+### Triage labels
+
+Five canonical roles: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See [docs/agents/triage-labels.md](docs/agents/triage-labels.md).
+
+### Domain docs
+
+Single-context glossary in [.agents/CONTEXT.md](.agents/CONTEXT.md) plus architectural Agent Notes in [.agents/notes/README.md](.agents/notes/README.md). See [docs/agents/domain.md](docs/agents/domain.md).
 
 ## Pre-stable APIs and released Session data
 

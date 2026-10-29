@@ -34,6 +34,32 @@ export function isArchivedAgentNotePath(path: string): boolean {
   return path.replaceAll('\\', '/').startsWith('.agents/notes/archived/')
 }
 
+const OPERATIONAL_DOC_PREFIXES = [
+  'docs/analysis/',
+  'docs/handoff/',
+  'docs/specs/',
+] as const
+
+/**
+ * Whether a repository path belongs to StrataHarness operational artifacts
+ * (`docs/{analysis,handoff,specs}/`) rather than standing product or agent documentation.
+ * @param path - Repository-relative path with forward or platform slashes.
+ * @returns True when the path lies inside one of the operational artifact directories.
+ */
+export function isOperationalDocPath(path: string): boolean {
+  const normalized = path.replaceAll('\\', '/')
+  return OPERATIONAL_DOC_PREFIXES.some(prefix => normalized.startsWith(prefix))
+}
+
+/**
+ * Whether a repository path is a destination-relative `init-project` scaffold template.
+ * @param path - Repository-relative path with forward or platform slashes.
+ * @returns True when the path lies inside `.agents/skills/init-project/templates/`.
+ */
+export function isInitProjectTemplatePath(path: string): boolean {
+  return path.replaceAll('\\', '/').startsWith('.agents/skills/init-project/templates/')
+}
+
 /**
  * Whether a pattern segment matches a directory or file name. Supports `*` and
  * `?` inside a segment and mirrors node's glob `dot: false`: a segment whose

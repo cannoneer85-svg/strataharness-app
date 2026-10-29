@@ -11,7 +11,12 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
 import type { Nodes } from 'mdast'
 import { markdownHeadingLines, parseMarkdown, visitMarkdown } from './markdown.ts'
-import { isArchivedAgentNotePath, uniqueRepoFiles } from './repo-files.ts'
+import {
+  isArchivedAgentNotePath,
+  isInitProjectTemplatePath,
+  isOperationalDocPath,
+  uniqueRepoFiles,
+} from './repo-files.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -19,6 +24,7 @@ const root = resolve(import.meta.dirname, '..')
 const PATTERNS = [
   'README.md',
   'README.zh.md',
+  '.agents/*.md',
   '.agents/notes/**/*.md',
   'docs/**/*.md',
   'packages/*.md',
@@ -30,12 +36,18 @@ const PATTERNS = [
 
 /**
  * Discover authored Markdown sources, deduplicating symlinks.
- * Archived notes are excluded as sources, but links to them remain checked.
+ * Archived notes, operational StrataHarness workflow artifacts, and destination-relative
+ * `init-project` scaffold templates are excluded as sources, while live `.agents/` docs,
+ * skill docs, and links to archived notes remain checked.
  * @param scanRoot - absolute repository root; pass the same root to findViolations for matching diagnostics.
  * @returns forward-slash source paths relative to scanRoot.
  */
 export function markdownLinkSourcePaths(scanRoot: string = root): string[] {
-  return uniqueRepoFiles(scanRoot, PATTERNS, isArchivedAgentNotePath)
+  return uniqueRepoFiles(
+    scanRoot,
+    PATTERNS,
+    path => isArchivedAgentNotePath(path) || isOperationalDocPath(path) || isInitProjectTemplatePath(path),
+  )
     .map(file => relative(scanRoot, file.abs).replaceAll('\\', '/'))
 }
 

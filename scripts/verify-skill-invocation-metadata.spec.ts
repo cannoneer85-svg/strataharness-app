@@ -50,4 +50,36 @@ describe('cross-product skill invocation metadata gate', () => {
       '.agents/skills/codex-only: Claude Code manual-only=false but Codex manual-only=true',
     ])
   })
+
+  it('rejects manual-only skills missing agents/openai.yaml and .agents/SKILLS.md registry drift', () => {
+    const root = fixtureRoot()
+    const manualNoOpenai = join(root, '.agents/skills/manual-missing-openai')
+    mkdirSync(manualNoOpenai, { recursive: true })
+    writeFileSync(
+      join(manualNoOpenai, 'SKILL.md'),
+      '---\nname: wrong-name\ndescription: Manual skill\ndisable-model-invocation: true\n---\n\nBody.\n',
+    )
+    writeSkill(root, 'unlisted-skill', '')
+    writeFileSync(
+      join(root, '.agents/SKILLS.md'),
+      [
+        '# Registry',
+        '',
+        '| Skill | Use |',
+        '|---|---|',
+        '| [manual-missing-openai](skills/manual-missing-openai/SKILL.md) | One |',
+        '| [manual-missing-openai](skills/manual-missing-openai/SKILL.md) | Dup |',
+        '| [ghost-skill](skills/ghost-skill/SKILL.md) | Missing folder |',
+        '',
+      ].join('\n'),
+    )
+
+    expect(collectSkillInvocationMetadataViolations(root)).toEqual([
+      ".agents/SKILLS.md: registered skill 'ghost-skill' has no .agents/skills/ghost-skill directory",
+      ".agents/SKILLS.md: skill 'manual-missing-openai' is listed 2 times",
+      '.agents/skills/unlisted-skill: missing from .agents/SKILLS.md',
+      ".agents/skills/manual-missing-openai/SKILL.md: frontmatter name 'wrong-name' must match directory 'manual-missing-openai'",
+      '.agents/skills/manual-missing-openai: Claude Code manual-only=true requires agents/openai.yaml with policy.allow_implicit_invocation=false',
+    ])
+  })
 })

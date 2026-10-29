@@ -3,11 +3,16 @@
     ".agents/notes/AGENTS.md",
     ".agents/notes/implemented/AGENTS.md",
     ".agents/notes/implemented/CLAUDE.md",
+    ".agents/skills/init-project/templates/",
     ".github/review-ownership/README.md",
     "docs/AGENTS.md",
+    "docs/agents/",
+    "docs/analysis/",
     "docs/cordis-api/inherited.md",
+    "docs/handoff/",
     "docs/i18n/style-samples.md",
     "docs/i18n/terminology.md",
-    "docs/i18n/translation-prompt.md"
+    "docs/i18n/translation-prompt.md",
+    "docs/specs/"
   ]
 }

@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { uniqueRepoFiles } from './repo-files.ts'
+import { isInitProjectTemplatePath, isOperationalDocPath, uniqueRepoFiles } from './repo-files.ts'
 
 const filesystem = vi.hoisted(() => ({ listed: [] as string[], canonicalized: [] as string[] }))
 vi.mock('node:fs', async (importOriginal) => {
@@ -261,5 +261,22 @@ describe('uniqueRepoFiles', () => {
     } finally {
       tree.clean()
     }
+  })
+})
+
+describe('isOperationalDocPath and isInitProjectTemplatePath', () => {
+  it('matches dated operational directories under docs/ while keeping standing docs/agents/ and product docs in scope', () => {
+    expect(isOperationalDocPath('docs\\specs\\0001-example-spec.md')).toBe(true)
+    expect(isOperationalDocPath('docs/handoff/LATEST.md')).toBe(true)
+    expect(isOperationalDocPath('docs/analysis/2026-10-29-audit.md')).toBe(true)
+    expect(isOperationalDocPath('docs/agents/issue-tracker.md')).toBe(false)
+    expect(isOperationalDocPath('docs/architecture.md')).toBe(false)
+    expect(isOperationalDocPath('docs/specs-extra/foo.md')).toBe(false)
+  })
+
+  it('matches init-project scaffold templates and rejects live skill instructions', () => {
+    expect(isInitProjectTemplatePath('.agents/skills/init-project/templates/README.md')).toBe(true)
+    expect(isInitProjectTemplatePath('.agents\\skills\\init-project\\templates\\LATEST.md')).toBe(true)
+    expect(isInitProjectTemplatePath('.agents/skills/init-project/SKILL.md')).toBe(false)
   })
 })
