@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-10-29-strata-dual-track-product-versioning.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-29-strata-dual-track-product-versioning.md
+/agent-note-dual-track-product-versioning-for-strataharness-desktop:
+  en: cea0022a800483a3
+  zh: 90ce11a734ef86b1
+/agent-note-dual-track-product-versioning-for-strataharness-desktop/problem:
+  en: 6847f5a846d04214
+  zh: 71f3e672b7b626f2
+/agent-note-dual-track-product-versioning-for-strataharness-desktop/decision:
+  en: dd3387855a2bbe75
+  zh: b10e933273eb2c76
+/agent-note-dual-track-product-versioning-for-strataharness-desktop/alternatives-considered:
+  en: 83c7a1d8751d8664
+  zh: 21e3dd7ad31ea0d9
+/agent-note-dual-track-product-versioning-for-strataharness-desktop/consequences:
+  en: 0b651d6316aa5977
+  zh: e626dcc4423f4393

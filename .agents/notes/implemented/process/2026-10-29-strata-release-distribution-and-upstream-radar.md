@@ -1,0 +1,36 @@
+# Agent Note: StrataHarness release distribution, signing modes, and upstream release radar
+
+Status: implemented
+
+English | [中文](2026-10-29-strata-release-distribution-and-upstream-radar.zh.md)
+
+## Problem
+
+Upstream DeepSeek Harness packages desktop targets on internal runners, signs Windows binaries exclusively through a physical SafeNet hardware token in `apps/desktop/scripts/windows-sign.mjs`, emits only `.dmg` (without `.zip`) for unsigned macOS builds, and publishes installers and `electron-updater` feeds to Tencent COS (`dsh-desk/<target>/` under `download.deepseek.com`).
+
+StrataHarness Desktop requires a self-contained distribution pipeline on standard GitHub-hosted runners (`windows-2022` and Apple Silicon `macos-15` with Rosetta 2 for `mac-x64`) with zero dependency on Tencent COS or `*.deepseek.com`, first-class `unsigned` installers out of the box before paid signing certificates are provisioned, standard cloud-CI certificate support once secrets are added, and proactive visibility for the system architect when upstream DeepSeek Harness publishes new `dsh-v*` tags without exposing upstream telemetry or notifications inside the end-user desktop app.
+
+## Decision
+
+StrataHarness ships a dual-surface distribution pipeline driven by modular GitHub Actions workflows (`strata-windows-package.yml`, `strata-macos-package.yml`, and `strata-release.yml` triggered by `strata-v*` tags and `workflow_dispatch`):
+
+1. **Signing modes (`auto` / `unsigned` / `signed`):** `apps/desktop/scripts/strata-signing-mode.mjs` inspects platform signing secrets in `auto` mode and falls back cleanly to `unsigned` (`-unsigned` artifacts, `publish: null`, emitting both `.dmg` and `.zip` on macOS alongside `.exe` on Windows); explicit `signed` fails fast on preflight when secrets are missing. On Windows, `apps/desktop/scripts/windows-sign.mjs` supports standard Base64/file `.pfx` certificates (`WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`) with an RFC-3161 timestamp fallback chain (`DigiCert` → `Sectigo` → `GlobalSign`) alongside local SafeNet token support, materializing temporary credential files strictly in `RUNNER_TEMP` with masking and `if: always()` cleanup. `signed` builds omit `app-update.yml` publication (`publish: null`) when `DOWNLOAD_PROD_ORIGIN` is unset so signed installers can ship via GitHub Releases before an external update CDN is provisioned.
+2. **Atomic GitHub Releases + generic HTTPS update feed:** Platform builds run with `fail-fast: false` for full diagnostic retention, while `strata-release.yml` and `scripts/strata/release-helper.ts` require all three targets (`win-x64`, `mac-arm64`, `mac-x64`) to succeed before publishing a production GitHub Release (`.exe`, `.dmg`, `.zip`, `SHA256SUMS.txt`, and generated release notes) or syncing the `electron-updater` generic HTTPS feed (`${DOWNLOAD_PROD_ORIGIN}/strataharness/feeds/<target>/`, verified locally via [desktop local updater qualification](../testing/2026-09-10-desktop-local-updater-qualification.md) and synced in two passes via AWS CLI when `STRATA_S3_*` secrets are present). Subset target selection is restricted to `draft` or `prerelease` manual dispatches.
+3. **Architect-only upstream release radar (`strata-upstream-watch.yml` + `pnpm run strata:check-upstream`):** GitHub Actions polls `https://github.com/deepseek-ai/deepseek-harness.git` on a daily schedule (never in the client runtime), compares `dsh-v*` tags against `upstreamBaseTag` in `strata-product.json`, and creates or updates a single deduplicated GitHub Issue labeled `strata:upstream-radar` (plus optional `STRATA_ARCHITECT_WEBHOOK_URL` notification) summarizing newly added `docs/upgrade-guide/` entries and modified files overlapping `strata(override)` commits.
+
+## Alternatives considered
+
+**Use `electron-updater`'s `provider: github` directly against GitHub Releases without a generic HTTPS feed contract.** While convenient for public repositories, `provider: github` couples update checks to GitHub API rate limits and repository visibility, and breaks the existing generic-provider feed layout tested by `test:updates:local`. Keeping `provider: generic` under `DOWNLOAD_PROD_ORIGIN/strataharness/feeds/<target>/` alongside GitHub Releases supports any static CDN, S3, Cloudflare R2, or GitHub Pages host without vendor lock-in.
+
+**Publish partial production releases when one platform runner fails.** Publishing a production `strata-v*` release missing `win-x64` or `mac-arm64` leaves users on broken download links and splits one product version across inconsistent release states. Retaining completed artifacts in Actions while gating publication on all three targets preserves build work without exposing incomplete releases.
+
+**Check for upstream `dsh-v*` releases inside the StrataHarness Desktop client.** End users run StrataHarness as an autonomous product with zero background calls to upstream infrastructure; upstream synchronization requires code review, `strata(override)` conflict assessment, and repackaging by the system architect, making GitHub Actions and `fork-ops.ts` the appropriate execution boundary.
+
+## Consequences
+
+- `strata-windows-package.yml` (`win-x64`) and `strata-macos-package.yml` (`mac-arm64`, `mac-x64`) support both `workflow_dispatch` and `workflow_call`, check out `resources/strataharness` recursively, fall back to `unsigned` in `auto` mode without secrets, and emit `.exe`, `.dmg`, and `.zip` artifacts passing `check:package`.
+- `windows-sign.mjs` supports `.pfx` signing (`WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD`) with RFC-3161 TSA retries in addition to hardware token signing, and `desktop-auto-update-environment.mjs` / `desktop-upload-plan.ts` emit `strataharness/feeds/<target>/` under `DOWNLOAD_PROD_ORIGIN` while rejecting `download.deepseek.com` and `*.deepseek.com` origins.
+- `strata-release.yml` verifies `strata-v*` tag parity against `strata-product.json`, enforces three-target atomicity for production releases, generates `SHA256SUMS.txt` and engine-attributed release notes, and qualifies updates locally via `test:updates:local` under isolated StrataHarness identity (`com.nikl.strataharness`, `@strata/desktop`, `.strataharness`).
+- `strata-upstream-watch.yml` and `pnpm run strata:check-upstream` generate an Impact Report comparing newer `dsh-v*` tags against `upstreamBaseTag`, `docs/upgrade-guide/`, and `strata(override)` files without touching runtime client packages.
+
+Unsigned macOS `.dmg` and `.zip` builds trigger Gatekeeper quarantine warnings on end-user machines until Apple Developer ID signing and notarization secrets are configured, and unsigned builds intentionally omit `electron-updater` `latest*.yml` feeds so unverified binaries are never auto-installed silently; generated release notes and `docs/strata/fork-maintenance.md` document first-launch Gatekeeper and SmartScreen instructions alongside the zero-code transition to `signed` mode via repository secrets.

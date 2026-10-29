@@ -1,0 +1,328 @@
+name: Strata Windows Desktop Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      signing_mode:
+        description: 'Desktop signing mode (auto falls back to unsigned when certificate secrets are absent)'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - unsigned
+          - signed
+      build_version:
+        description: 'Optional SemVer build version override (defaults to strata-product.json productVersion)'
+        required: false
+        default: ''
+        type: string
+      download_prod_origin:
+        description: 'Optional HTTPS static feed origin (for example https://downloads.example.com)'
+        required: false
+        default: ''
+        type: string
+  workflow_call:
+    inputs:
+      signing_mode:
+        description: 'Desktop signing mode (auto, unsigned, or signed)'
+        required: false
+        default: 'auto'
+        type: string
+      build_version:
+        description: 'Optional SemVer build version override'
+        required: false
+        default: ''
+        type: string
+      download_prod_origin:
+        description: 'Optional HTTPS static feed origin'
+        required: false
+        default: ''
+        type: string
+    secrets:
+      STRATA_SUBMODULE_TOKEN:
+        description: 'Optional PAT or deploy token for checking out resources/strataharness when private'
+        required: false
+      WIN_CSC_LINK:
+        description: 'Base64-encoded Windows Authenticode .pfx certificate bundle'
+        required: false
+      WIN_CSC_KEY_PASSWORD:
+        description: 'Export password for WIN_CSC_LINK'
+        required: false
+      DOWNLOAD_PROD_ORIGIN:
+        description: 'Optional HTTPS static update-feed origin secret'
+        required: false
+    outputs:
+      effective_signing_mode:
+        description: 'Resolved signing mode for win-x64 (signed or unsigned)'
+        value: ${{ jobs.package.outputs.effective_signing_mode }}
+      version:
+        description: 'Packaged StrataHarness build SemVer'
+        value: ${{ jobs.package.outputs.version }}
+      artifact_name:
+        description: 'Uploaded GitHub Actions artifact name for win-x64'
+        value: ${{ jobs.package.outputs.artifact_name }}
+
+permissions:
+  contents: read
+
+env:
+  DSH_TELEMETRY_DISABLED: '1'
+  PRIMARY_NODE_VERSION: '24'
+
+jobs:
+  package:
+    name: Package Windows x64 Desktop
+    runs-on: windows-2022
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: pwsh
+    outputs:
+      effective_signing_mode: ${{ steps.signing.outputs.effective_signing_mode }}
+      version: ${{ steps.signing.outputs.version }}
+      artifact_name: strata-dist-win-x64
+    steps:
+      - name: Prioritize Windows System32 bsdtar ahead of Git GNU tar in PATH
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $system32 = 'C:\Windows\System32'
+          $entries = @($system32) + (
+            ($env:PATH -split ';') | Where-Object {
+              $_ -and ($_.TrimEnd('\') -ieq $system32) -eq $false
+            }
+          )
+          $normalizedPath = $entries -join ';'
+          $env:PATH = $normalizedPath
+          Add-Content -LiteralPath $env:GITHUB_PATH -Value $system32 -Encoding utf8
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "Path=$normalizedPath" -Encoding utf8
+
+          $resolvedTar = (Get-Command tar.exe -ErrorAction Stop).Source
+          Write-Host "Resolved tar.exe: $resolvedTar"
+          if ($resolvedTar -match 'Git[\\/]usr[\\/]bin') {
+            throw "Windows packaging requires System32 bsdtar ahead of Git GNU tar, but resolved: $resolvedTar"
+          }
+
+      - name: Checkout repository and methodology submodule
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          token: ${{ secrets.STRATA_SUBMODULE_TOKEN || github.token }}
+          persist-credentials: false
+
+      - name: Verify bundled StrataHarness methodology submodule
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $skillsDir = 'resources/strataharness/.agents/skills'
+          if (-not (Test-Path -LiteralPath $skillsDir -PathType Container)) {
+            throw "Missing initialized methodology submodule directory: $skillsDir"
+          }
+          $entries = @(Get-ChildItem -LiteralPath $skillsDir -Force)
+          if ($entries.Count -eq 0) {
+            throw "Methodology submodule directory is empty: $skillsDir"
+          }
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5.0.0
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Configure pnpm store path
+        id: pnpm-store
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $storeRoot = Join-Path $HOME '.pnpm-store'
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "PNPM_CONFIG_STORE_DIR=$storeRoot" -Encoding utf8
+          $env:PNPM_CONFIG_STORE_DIR = $storeRoot
+          $storePath = (pnpm store path --silent).Trim()
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "path=$storePath" -Encoding utf8
+
+      - name: Cache pnpm store
+        uses: actions/cache@v6.1.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-strata-win-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-strata-win-pnpm-
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
+
+      - name: Cache desktop runtime downloads and Electron archives
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            apps/desktop/.desktop-build/downloads
+            ~/AppData/Local/electron/Cache
+          key: ${{ runner.os }}-strata-desktop-runtime-${{ hashFiles('apps/desktop/package.json', 'pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-strata-desktop-runtime-
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate workspace constraints and Soft-Fork overrides
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pnpm run constraints
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm run strata:audit-overrides
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Materialize temporary Windows signing certificate and resolve signing mode
+        id: signing
+        env:
+          INPUT_SIGNING_MODE: ${{ inputs.signing_mode }}
+          INPUT_BUILD_VERSION: ${{ inputs.build_version }}
+          INPUT_DOWNLOAD_PROD_ORIGIN: ${{ inputs.download_prod_origin }}
+          SECRET_WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          SECRET_WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          SECRET_DOWNLOAD_PROD_ORIGIN: ${{ secrets.DOWNLOAD_PROD_ORIGIN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($secretVal in @($env:SECRET_WIN_CSC_LINK, $env:SECRET_WIN_CSC_KEY_PASSWORD)) {
+            if (-not [string]::IsNullOrWhiteSpace($secretVal)) {
+              foreach ($line in ($secretVal -split "\r?\n")) {
+                if (-not [string]::IsNullOrWhiteSpace($line)) {
+                  Write-Output "::add-mask::$($line.Trim())"
+                }
+              }
+            }
+          }
+
+          $requestedMode = if ([string]::IsNullOrWhiteSpace($env:INPUT_SIGNING_MODE)) { 'auto' } else { $env:INPUT_SIGNING_MODE.Trim() }
+          $pfxPath = ''
+          if ($requestedMode -ne 'unsigned' -and -not [string]::IsNullOrWhiteSpace($env:SECRET_WIN_CSC_LINK)) {
+            $rawCert = $env:SECRET_WIN_CSC_LINK.Trim()
+            if ($rawCert -match '^data:[^;]+;base64,(.+)$') {
+              $rawCert = $Matches[1]
+            }
+            $normalizedBase64 = ($rawCert -replace '\s+', '')
+            $pfxBytes = [Convert]::FromBase64String($normalizedBase64)
+            if ($pfxBytes.Length -eq 0) {
+              throw 'WIN_CSC_LINK decoded to 0 bytes'
+            }
+            $pfxPath = Join-Path $env:RUNNER_TEMP 'strata-win-cert.pfx'
+            [System.IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
+          }
+
+          $env:RESOLVED_PFX_PATH = $pfxPath
+          node --input-type=module -e '
+            import { appendFileSync } from "node:fs";
+            import { resolveStrataSigningMode } from "./apps/desktop/scripts/strata-signing-mode.mjs";
+            import { resolveStrataProductVersion } from "./apps/desktop/scripts/strata-desktop-config.mjs";
+
+            const requestedMode = (process.env.INPUT_SIGNING_MODE || "auto").trim();
+            const pfxPath = (process.env.RESOLVED_PFX_PATH || "").trim();
+            const candidateEnv = {
+              WIN_CSC_LINK: pfxPath || undefined,
+              WIN_CSC_KEY_PASSWORD: (process.env.SECRET_WIN_CSC_KEY_PASSWORD || "").trim() || undefined,
+            };
+            const resolved = resolveStrataSigningMode({
+              mode: requestedMode,
+              platform: "win32",
+              env: candidateEnv,
+            });
+            const productVersion = resolveStrataProductVersion(process.env);
+            const buildVersion = (process.env.INPUT_BUILD_VERSION || "").trim() || productVersion;
+            const updateChannel = buildVersion.includes("-") ? "nightly" : "latest";
+            const downloadOrigin =
+              (process.env.INPUT_DOWNLOAD_PROD_ORIGIN || "").trim() ||
+              (process.env.SECRET_DOWNLOAD_PROD_ORIGIN || "").trim();
+
+            const lines = [
+              `requested_signing_mode=${resolved.requestedMode}`,
+              `effective_signing_mode=${resolved.effectiveMode}`,
+              `version=${buildVersion}`,
+              `update_channel=${updateChannel}`,
+              `pfx_path=${resolved.effectiveMode === "signed" ? pfxPath : ""}`,
+              `download_prod_origin=${downloadOrigin}`,
+            ];
+            appendFileSync(process.env.GITHUB_OUTPUT, `${lines.join("\n")}\n`, "utf8");
+            console.log(`Windows signing mode: requested=${resolved.requestedMode} -> effective=${resolved.effectiveMode} (version=${buildVersion})`);
+          '
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Preflight Windows packaging configuration and toolchain
+        env:
+          STRATA_SIGNING_MODE: ${{ steps.signing.outputs.effective_signing_mode }}
+          BUILD_VERSION: ${{ steps.signing.outputs.version }}
+          DSH_DESKTOP_AUTO_UPDATE_ENV: production
+          DSH_DESKTOP_UPDATE_CHANNEL: ${{ steps.signing.outputs.update_channel }}
+          DOWNLOAD_PROD_ORIGIN: ${{ steps.signing.outputs.download_prod_origin }}
+          WIN_CSC_LINK: ${{ steps.signing.outputs.pfx_path }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pkgArgs = @('win-x64', '--check', '--build-version', $env:BUILD_VERSION)
+          if ($env:STRATA_SIGNING_MODE -eq 'unsigned') {
+            $pkgArgs += '--unsigned'
+          }
+          pnpm --filter @deepseek-ai/dsh-desktop run package -- @pkgArgs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build and package Windows x64 installer
+        env:
+          STRATA_SIGNING_MODE: ${{ steps.signing.outputs.effective_signing_mode }}
+          BUILD_VERSION: ${{ steps.signing.outputs.version }}
+          DSH_DESKTOP_AUTO_UPDATE_ENV: production
+          DSH_DESKTOP_UPDATE_CHANNEL: ${{ steps.signing.outputs.update_channel }}
+          DOWNLOAD_PROD_ORIGIN: ${{ steps.signing.outputs.download_prod_origin }}
+          WIN_CSC_LINK: ${{ steps.signing.outputs.pfx_path }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pkgArgs = @('win-x64', '--build-version', $env:BUILD_VERSION)
+          if ($env:STRATA_SIGNING_MODE -eq 'unsigned') {
+            $pkgArgs += '--unsigned'
+          }
+          pnpm --filter @deepseek-ai/dsh-desktop run package -- @pkgArgs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify and stage Windows distributable artifacts
+        env:
+          BUILD_VERSION: ${{ steps.signing.outputs.version }}
+          REQUESTED_SIGNING_MODE: ${{ steps.signing.outputs.requested_signing_mode }}
+          EFFECTIVE_SIGNING_MODE: ${{ steps.signing.outputs.effective_signing_mode }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stageDir = Join-Path $env:RUNNER_TEMP 'strata-dist-win-x64'
+          pnpm exec tsx scripts/strata/release-helper.ts stage-target `
+            --target win-x64 `
+            --version $env:BUILD_VERSION `
+            --requested-signing-mode $env:REQUESTED_SIGNING_MODE `
+            --effective-signing-mode $env:EFFECTIVE_SIGNING_MODE `
+            --out-dir $stageDir
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload staged Windows installer artifacts
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: strata-dist-win-x64
+          path: ${{ runner.temp }}/strata-dist-win-x64/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Windows packaging run diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: strata-packaging-runs-win-x64
+          path: apps/desktop/.desktop-build/packaging-runs
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Remove temporary Windows signing certificate from RUNNER_TEMP
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'strata-win-cert.pfx'
+          if (Test-Path -LiteralPath $pfxPath) {
+            Remove-Item -LiteralPath $pfxPath -Force
+          }

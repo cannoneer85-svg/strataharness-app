@@ -1,7 +1,7 @@
 {
   "name": "@strata/product-bundle",
   "description": "StrataHarness product composition bundle: disables upstream telemetry and cloud account services, provides bundled StrataHarness paths, and registers the four Strata agent presets.",
-  "version": "0.2.1-rc.4",
+  "version": "1.0.0",
   "publishConfig": {
     "access": "public"
   },

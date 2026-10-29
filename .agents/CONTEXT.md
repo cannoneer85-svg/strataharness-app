@@ -68,3 +68,29 @@ _Avoid_: handoff, ship, finish
 
 **Source plane vs Artifact plane**:
 Разделение исходников (`src/`, резолв через `tsconfig` `paths` на чистом дереве) и собранных артефактов (`lib/`, `build:artifacts` + `build:check`), которые никогда не смешиваются.
+
+## Термины дистрибуции и сопровождения форка (StrataHarness Desktop)
+
+**Soft-Fork**:
+Управляемый форк монорепозитория `deepseek-ai/deepseek-harness`, в котором продуктовые пакеты, CI-воркфлоу и скрипты сопровождения изолированы в пространствах `packages/strata/*`, `scripts/strata/*`, `.github/workflows/strata-*.yml` и `resources/strataharness`, а синхронизация с оригиналом выполняется только по релизным тегам `dsh-v*`.
+_Avoid_: Hard-Fork, вендоринг
+
+**`strata(override)`**:
+Маркированный conventional-коммит точечной врезки в файл апстрима, обязательный для учёта и автоматического аудита расхождений при слиянии новых тегов `dsh-v*`.
+_Avoid_: немаркированный патч ядра
+
+**Релизный тег продукта (`strata-v*`)**:
+Тег выпуска десктоп-дистрибутива StrataHarness вида `strata-v<version>`, отделённый от тегов апстрима `dsh-v*` и инициирующий сборку и публикацию релиза.
+_Avoid_: `dsh-v*` (резерв за релизами апстрима)
+
+**Канал автообновления (`DOWNLOAD_PROD_ORIGIN`)**:
+Статический HTTPS-источник метаданных `electron-updater` (`strataharness/feeds/<target>/latest*.yml` и подписанных артефактов), полностью изолированный от инфраструктуры DeepSeek и Tencent COS.
+_Avoid_: CDN DeepSeek, Tencent COS
+
+**Двухконтурное версионирование (`strata-product.json`)**:
+Разделение продуктовой SemVer-версии `StrataHarness` (`1.0.0` → `1.1.0` → `1.1.1` для установщиков, `app.getVersion()`, UI, тегов `strata-v*` и автообновления) и версии базового движка `@deepseek-ai/dsh-*` (`upstreamBaseTag`), предотвращающее конфликты слияния в манифестах апстрима.
+_Avoid_: перезапись версии в пакетах `@deepseek-ai/dsh-*`
+
+**Радар апстрима (`strata-upstream-watch`)**:
+Механизм фонового и CLI-мониторинга новых релизных тегов `dsh-v*` для системного архитектора (вне клиентского приложения), формирующий Impact-отчёт по карточкам `docs/upgrade-guide/` и затронутым файлам `strata(override)`.
+_Avoid_: клиентская проверка обновлений

@@ -1,0 +1,187 @@
+name: Strata Upstream Release Radar
+
+on:
+  schedule:
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+    inputs:
+      upstream_url:
+        description: 'Optional override for the upstream Git repository URL'
+        required: false
+        default: ''
+        type: string
+      dry_run:
+        description: 'Generate the impact summary without mutating GitHub Issues or webhooks'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: strata-upstream-watch
+  cancel-in-progress: true
+
+env:
+  DSH_TELEMETRY_DISABLED: '1'
+  PRIMARY_NODE_VERSION: '24'
+
+jobs:
+  radar:
+    name: Check upstream dsh-v* releases
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout repository history
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          submodules: false
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5.0.0
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Configure pnpm store path
+        id: pnpm-store
+        run: |
+          store_root="$HOME/.local/share/pnpm/store"
+          echo "PNPM_CONFIG_STORE_DIR=$store_root" >> "$GITHUB_ENV"
+          store_path=$(PNPM_CONFIG_STORE_DIR="$store_root" pnpm store path --silent)
+          echo "path=$store_path" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v6.1.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-strata-radar-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-strata-radar-pnpm-
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Check upstream dsh-v* tags and build impact report
+        id: check
+        env:
+          INPUT_UPSTREAM_URL: ${{ inputs.upstream_url }}
+        run: |
+          set -euo pipefail
+          report_json="$RUNNER_TEMP/upstream-impact-report.json"
+          report_md="$RUNNER_TEMP/upstream-impact-report.md"
+
+          cli_args=(--fetch --json)
+          if [[ -n "${INPUT_UPSTREAM_URL:-}" ]]; then
+            cli_args+=(--remote-url "$INPUT_UPSTREAM_URL")
+          fi
+
+          pnpm -s run strata:check-upstream "${cli_args[@]}" > "$report_json"
+
+          node -e '
+            const fs = require("node:fs");
+            const report = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            fs.writeFileSync(process.argv[2], `${report.markdownSummary}\n`, "utf8");
+            const outputs = [
+              `up_to_date=${report.upToDate ? "true" : "false"}`,
+              `upstream_base_tag=${report.upstreamBaseTag}`,
+              `latest_tag=${report.latestTag ?? ""}`,
+              `newer_count=${String(report.newerTags.length)}`,
+              `overlap_count=${String(report.overlappingOverrideFiles.length)}`,
+              `upgrade_guide_count=${String(report.upgradeGuides.length)}`,
+            ];
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `${outputs.join("\n")}\n`, "utf8");
+          ' "$report_json" "$report_md"
+
+          cat "$report_md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create or update deduplicated upstream radar GitHub Issue
+        if: steps.check.outputs.up_to_date == 'false' && inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          UPSTREAM_BASE_TAG: ${{ steps.check.outputs.upstream_base_tag }}
+          LATEST_TAG: ${{ steps.check.outputs.latest_tag }}
+        run: |
+          set -euo pipefail
+          if [[ "${INPUT_DRY_RUN:-false}" == "true" ]]; then
+            echo "Dry run requested; skipping GitHub Issue creation/update."
+            exit 0
+          fi
+
+          label_name="strata:upstream-radar"
+          issue_title="Upstream Release Available: ${LATEST_TAG} (current base: ${UPSTREAM_BASE_TAG})"
+          report_md="$RUNNER_TEMP/upstream-impact-report.md"
+
+          gh label create "$label_name" \
+            --color "1d76db" \
+            --description "Automated StrataHarness Soft-Fork upstream dsh-v* release radar" \
+            --force
+
+          existing_issue="$(
+            gh issue list \
+              --state open \
+              --label "$label_name" \
+              --limit 10 \
+              --json number,title \
+              --jq 'sort_by(.number) | .[0].number // empty'
+          )"
+
+          if [[ -n "$existing_issue" ]]; then
+            gh issue edit "$existing_issue" \
+              --title "$issue_title" \
+              --body-file "$report_md"
+            echo "Updated open upstream radar issue #${existing_issue}."
+          else
+            gh issue create \
+              --title "$issue_title" \
+              --label "$label_name" \
+              --body-file "$report_md"
+          fi
+
+      - name: Notify architect webhook if configured
+        if: steps.check.outputs.up_to_date == 'false' && inputs.dry_run != true
+        env:
+          WEBHOOK_URL: ${{ secrets.STRATA_ARCHITECT_WEBHOOK_URL }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          UPSTREAM_BASE_TAG: ${{ steps.check.outputs.upstream_base_tag }}
+          LATEST_TAG: ${{ steps.check.outputs.latest_tag }}
+          NEWER_COUNT: ${{ steps.check.outputs.newer_count }}
+          OVERLAP_COUNT: ${{ steps.check.outputs.overlap_count }}
+          UPGRADE_GUIDE_COUNT: ${{ steps.check.outputs.upgrade_guide_count }}
+          REPOSITORY_SLUG: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [[ "${INPUT_DRY_RUN:-false}" == "true" || -z "${WEBHOOK_URL:-}" ]]; then
+            echo "STRATA_ARCHITECT_WEBHOOK_URL not configured or dry_run active; skipping webhook notification."
+            exit 0
+          fi
+
+          payload_path="$RUNNER_TEMP/upstream-webhook-payload.json"
+          node -e '
+            const fs = require("node:fs");
+            const summary = [
+              `StrataHarness Upstream Radar (${process.env.REPOSITORY_SLUG})`,
+              `Latest upstream tag: ${process.env.LATEST_TAG} (current base: ${process.env.UPSTREAM_BASE_TAG}, ${process.env.NEWER_COUNT} newer tags)`,
+              `Overlapping strata(override) files: ${process.env.OVERLAP_COUNT} | Upgrade guides: ${process.env.UPGRADE_GUIDE_COUNT}`,
+              `Details: ${process.env.RUN_URL}`,
+            ].join("\n");
+            fs.writeFileSync(process.argv[1], JSON.stringify({ text: summary, content: summary }), "utf8");
+          ' "$payload_path"
+
+          curl --fail-with-body -sS -X POST \
+            -H "Content-Type: application/json" \
+            --data @"$payload_path" \
+            "$WEBHOOK_URL" > /dev/null

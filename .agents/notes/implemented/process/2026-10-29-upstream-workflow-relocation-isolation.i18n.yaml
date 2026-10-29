@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-10-29-upstream-workflow-relocation-isolation.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-10-29-upstream-workflow-relocation-isolation.md
+/agent-note-isolate-upstream-github-actions-workflows-via-archive-relocation:
+  en: 3972f5b39c7d09e9
+  zh: 35a95f85d8ec0d13
+/agent-note-isolate-upstream-github-actions-workflows-via-archive-relocation/problem:
+  en: aaa07d0c1b65aac2
+  zh: 52473f638c1358c4
+/agent-note-isolate-upstream-github-actions-workflows-via-archive-relocation/decision:
+  en: ba9d81d57ca96cbd
+  zh: b0f3061603c801dc
+/agent-note-isolate-upstream-github-actions-workflows-via-archive-relocation/alternatives-considered:
+  en: 166151a9d4f410c8
+  zh: 4ad03d952e480428
+/agent-note-isolate-upstream-github-actions-workflows-via-archive-relocation/consequences:
+  en: 9d4a85487ee99577
+  zh: 68656bac4acd9057

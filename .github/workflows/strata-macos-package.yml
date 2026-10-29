@@ -1,0 +1,463 @@
+name: Strata macOS Desktop Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      signing_mode:
+        description: 'Desktop signing mode (auto falls back to unsigned when Apple certificate secrets are absent)'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - unsigned
+          - signed
+      targets:
+        description: 'macOS architecture targets to build'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - mac-arm64
+          - mac-x64
+      skip_notarization:
+        description: 'Skip Apple notarization on signed internal debugging builds'
+        required: false
+        default: false
+        type: boolean
+      build_version:
+        description: 'Optional SemVer build version override (defaults to strata-product.json productVersion)'
+        required: false
+        default: ''
+        type: string
+      download_prod_origin:
+        description: 'Optional HTTPS static feed origin (for example https://downloads.example.com)'
+        required: false
+        default: ''
+        type: string
+  workflow_call:
+    inputs:
+      signing_mode:
+        description: 'Desktop signing mode (auto, unsigned, or signed)'
+        required: false
+        default: 'auto'
+        type: string
+      targets:
+        description: 'macOS architecture selector (all, mac-arm64, or mac-x64)'
+        required: false
+        default: 'all'
+        type: string
+      skip_notarization:
+        description: 'Skip Apple notarization on signed internal debugging builds'
+        required: false
+        default: false
+        type: boolean
+      build_version:
+        description: 'Optional SemVer build version override'
+        required: false
+        default: ''
+        type: string
+      download_prod_origin:
+        description: 'Optional HTTPS static feed origin'
+        required: false
+        default: ''
+        type: string
+    secrets:
+      STRATA_SUBMODULE_TOKEN:
+        description: 'Optional PAT or deploy token for checking out resources/strataharness when private'
+        required: false
+      CSC_LINK:
+        description: 'Base64-encoded Apple Developer ID Application .p12 certificate bundle'
+        required: false
+      CSC_KEY_PASSWORD:
+        description: 'Export password for CSC_LINK'
+        required: false
+      DSH_DESKTOP_MACOS_SIGNING_IDENTITY:
+        description: 'Exact Developer ID Application identity string'
+        required: false
+      DSH_DESKTOP_MACOS_TEAM_ID:
+        description: '10-character Apple Developer Team ID'
+        required: false
+      APPLE_API_KEY:
+        description: 'App Store Connect API private key (.p8 PEM or Base64)'
+        required: false
+      APPLE_API_KEY_ID:
+        description: 'App Store Connect API Key ID'
+        required: false
+      APPLE_API_ISSUER:
+        description: 'App Store Connect API Issuer UUID'
+        required: false
+      APPLE_ID:
+        description: 'Fallback Apple ID email for notarization when App Store Connect API keys are not used'
+        required: false
+      APPLE_APP_SPECIFIC_PASSWORD:
+        description: 'Fallback app-specific password for APPLE_ID notarization'
+        required: false
+      APPLE_TEAM_ID:
+        description: 'Fallback Apple Team ID for APPLE_ID notarization'
+        required: false
+      DOWNLOAD_PROD_ORIGIN:
+        description: 'Optional HTTPS static update-feed origin secret'
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  DSH_TELEMETRY_DISABLED: '1'
+  PRIMARY_NODE_VERSION: '24'
+
+jobs:
+  package:
+    name: Package macOS (${{ matrix.target }})
+    runs-on: macos-15
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ inputs.targets == 'mac-arm64' && fromJSON('["mac-arm64"]') || (inputs.targets == 'mac-x64' && fromJSON('["mac-x64"]') || fromJSON('["mac-arm64", "mac-x64"]')) }}
+    steps:
+      - name: Validate requested macOS target selector
+        env:
+          INPUT_TARGETS: ${{ inputs.targets }}
+        run: |
+          set -euo pipefail
+          selector="${INPUT_TARGETS:-all}"
+          case "$selector" in
+            all|mac-arm64|mac-x64) ;;
+            *)
+              echo "Unsupported macOS target selector: $selector (expected all, mac-arm64, or mac-x64)" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Ensure Rosetta 2 is available for mac-x64 cross-architecture packaging
+        if: matrix.target == 'mac-x64'
+        run: |
+          set -euo pipefail
+          if ! /usr/bin/pgrep -q oahd; then
+            sudo softwareupdate --install-rosetta --agree-to-license
+          fi
+          arch -x86_64 /usr/bin/uname -m
+
+      - name: Checkout repository and methodology submodule
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          token: ${{ secrets.STRATA_SUBMODULE_TOKEN || github.token }}
+          persist-credentials: false
+
+      - name: Verify bundled StrataHarness methodology submodule
+        run: |
+          set -euo pipefail
+          skills_dir="resources/strataharness/.agents/skills"
+          if [[ ! -d "$skills_dir" ]] || [[ -z "$(ls -A "$skills_dir" 2>/dev/null)" ]]; then
+            echo "Missing or empty methodology submodule directory: $skills_dir" >&2
+            exit 1
+          fi
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5.0.0
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Configure pnpm store path
+        id: pnpm-store
+        run: |
+          set -euo pipefail
+          store_root="$HOME/.local/share/pnpm/store"
+          echo "PNPM_CONFIG_STORE_DIR=$store_root" >> "$GITHUB_ENV"
+          store_path="$(PNPM_CONFIG_STORE_DIR="$store_root" pnpm store path --silent)"
+          echo "path=$store_path" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v6.1.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-strata-mac-${{ matrix.target }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-strata-mac-${{ matrix.target }}-pnpm-
+            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-strata-mac-
+
+      - name: Cache desktop runtime downloads and Electron archives
+        uses: actions/cache@v6.1.0
+        with:
+          path: |
+            apps/desktop/.desktop-build/downloads
+            ~/Library/Caches/electron
+          key: ${{ runner.os }}-${{ matrix.target }}-strata-desktop-runtime-${{ hashFiles('apps/desktop/package.json', 'pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-strata-desktop-runtime-
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate workspace constraints and Soft-Fork overrides
+        run: |
+          set -euo pipefail
+          pnpm run constraints
+          pnpm run strata:audit-overrides
+
+      - name: Materialize temporary macOS signing credentials in RUNNER_TEMP and resolve signing mode
+        id: signing
+        env:
+          INPUT_SIGNING_MODE: ${{ inputs.signing_mode }}
+          INPUT_SKIP_NOTARIZATION: ${{ inputs.skip_notarization }}
+          INPUT_BUILD_VERSION: ${{ inputs.build_version }}
+          INPUT_DOWNLOAD_PROD_ORIGIN: ${{ inputs.download_prod_origin }}
+          SECRET_CSC_LINK: ${{ secrets.CSC_LINK }}
+          SECRET_CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          SECRET_MACOS_SIGNING_IDENTITY: ${{ secrets.DSH_DESKTOP_MACOS_SIGNING_IDENTITY }}
+          SECRET_MACOS_TEAM_ID: ${{ secrets.DSH_DESKTOP_MACOS_TEAM_ID }}
+          SECRET_APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          SECRET_APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          SECRET_APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          SECRET_APPLE_ID: ${{ secrets.APPLE_ID }}
+          SECRET_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          SECRET_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          SECRET_DOWNLOAD_PROD_ORIGIN: ${{ secrets.DOWNLOAD_PROD_ORIGIN }}
+        run: |
+          set -euo pipefail
+          node --input-type=module -e '
+            import { appendFileSync, chmodSync, mkdirSync, writeFileSync } from "node:fs";
+            import { join } from "node:path";
+            import { resolveStrataSigningMode } from "./apps/desktop/scripts/strata-signing-mode.mjs";
+            import { STRATA_DESKTOP_APP_ID, resolveStrataProductVersion } from "./apps/desktop/scripts/strata-desktop-config.mjs";
+
+            const maskLines = (raw) => {
+              if (!raw) return;
+              for (const line of raw.split(/\r?\n/u)) {
+                const trimmed = line.trim();
+                if (trimmed !== "") process.stdout.write(`::add-mask::${trimmed}\n`);
+              }
+            };
+
+            for (const key of [
+              "SECRET_CSC_LINK",
+              "SECRET_CSC_KEY_PASSWORD",
+              "SECRET_APPLE_API_KEY",
+              "SECRET_APPLE_APP_SPECIFIC_PASSWORD",
+            ]) {
+              maskLines(process.env[key]);
+            }
+
+            const runnerTemp = process.env.RUNNER_TEMP;
+            if (!runnerTemp) throw new Error("RUNNER_TEMP must be set");
+
+            const skipNotarization = (process.env.INPUT_SKIP_NOTARIZATION || "false").trim().toLowerCase() === "true";
+            const requestedMode = (process.env.INPUT_SIGNING_MODE || "auto").trim();
+            const rawSigningIdentity = (process.env.SECRET_MACOS_SIGNING_IDENTITY || "").trim();
+            const normalizedSigningIdentity = rawSigningIdentity.replace(/^Developer ID Application:\s*/iu, "").trim();
+
+            let p12Path = "";
+            const rawP12 = (process.env.SECRET_CSC_LINK || "").trim();
+            if (requestedMode !== "unsigned" && rawP12 !== "") {
+              const stripped = rawP12.replace(/^data:[^;]+;base64,/iu, "").replace(/\s+/gu, "");
+              const bytes = Buffer.from(stripped, "base64");
+              if (bytes.length === 0) throw new Error("CSC_LINK decoded to 0 bytes");
+              p12Path = join(runnerTemp, "strata-macos-cert.p12");
+              writeFileSync(p12Path, bytes, { mode: 0o600 });
+              chmodSync(p12Path, 0o600);
+            }
+
+            let p8Path = "";
+            const rawP8 = (process.env.SECRET_APPLE_API_KEY || "").trim();
+            if (requestedMode !== "unsigned" && rawP8 !== "") {
+              p8Path = join(runnerTemp, "AuthKey.p8");
+              if (rawP8.includes("-----BEGIN")) {
+                writeFileSync(p8Path, `${rawP8}\n`, { encoding: "utf8", mode: 0o600 });
+              } else {
+                const decoded = Buffer.from(rawP8.replace(/\s+/gu, ""), "base64");
+                if (decoded.length === 0) throw new Error("APPLE_API_KEY decoded to 0 bytes");
+                writeFileSync(p8Path, decoded, { mode: 0o600 });
+              }
+              chmodSync(p8Path, 0o600);
+            }
+
+            const candidateEnv = {
+              CSC_LINK: p12Path || undefined,
+              CSC_KEY_PASSWORD: (process.env.SECRET_CSC_KEY_PASSWORD || "").trim() || undefined,
+              DSH_DESKTOP_MACOS_SIGNING_IDENTITY: normalizedSigningIdentity || undefined,
+              DSH_DESKTOP_MACOS_TEAM_ID: (process.env.SECRET_MACOS_TEAM_ID || "").trim() || undefined,
+              APPLE_API_KEY: p8Path || undefined,
+              APPLE_API_KEY_ID: (process.env.SECRET_APPLE_API_KEY_ID || "").trim() || undefined,
+              APPLE_API_ISSUER: (process.env.SECRET_APPLE_API_ISSUER || "").trim() || undefined,
+              APPLE_ID: (process.env.SECRET_APPLE_ID || "").trim() || undefined,
+              APPLE_APP_SPECIFIC_PASSWORD: (process.env.SECRET_APPLE_APP_SPECIFIC_PASSWORD || "").trim() || undefined,
+              APPLE_TEAM_ID: (process.env.SECRET_APPLE_TEAM_ID || "").trim() || undefined,
+            };
+
+            const resolved = resolveStrataSigningMode({
+              mode: requestedMode,
+              platform: "darwin",
+              skipNotarization,
+              env: candidateEnv,
+            });
+
+            const productVersion = resolveStrataProductVersion(process.env);
+            const buildVersion = (process.env.INPUT_BUILD_VERSION || "").trim() || productVersion;
+            const updateChannel = buildVersion.includes("-") ? "nightly" : "latest";
+            const downloadOrigin =
+              (process.env.INPUT_DOWNLOAD_PROD_ORIGIN || "").trim() ||
+              (process.env.SECRET_DOWNLOAD_PROD_ORIGIN || "").trim();
+
+            let configDir = "";
+            if (resolved.effectiveMode === "signed") {
+              configDir = join(runnerTemp, "strata-macos-config");
+              mkdirSync(join(configDir, "presets"), { recursive: true, mode: 0o700 });
+              mkdirSync(join(configDir, "secrets"), { recursive: true, mode: 0o700 });
+
+              const presetLines = [
+                `DSH_DESKTOP_APP_ID=${JSON.stringify(STRATA_DESKTOP_APP_ID)}`,
+                "DSH_DESKTOP_AUTO_UPDATE_ENV=production",
+              ];
+              if (downloadOrigin !== "") {
+                presetLines.push(`DOWNLOAD_PROD_ORIGIN=${JSON.stringify(downloadOrigin)}`);
+              }
+              const presetFile = join(configDir, "presets", "production.env");
+              writeFileSync(presetFile, `${presetLines.join("\n")}\n`, { encoding: "utf8", mode: 0o600 });
+              chmodSync(presetFile, 0o600);
+
+              const secretLines = [
+                `CSC_LINK=${JSON.stringify(p12Path)}`,
+                `CSC_KEY_PASSWORD=${JSON.stringify(process.env.SECRET_CSC_KEY_PASSWORD || "")}`,
+                `DSH_DESKTOP_MACOS_SIGNING_IDENTITY=${JSON.stringify(normalizedSigningIdentity)}`,
+                `DSH_DESKTOP_MACOS_TEAM_ID=${JSON.stringify((process.env.SECRET_MACOS_TEAM_ID || "").trim())}`,
+              ];
+              if (!skipNotarization) {
+                if (p8Path && candidateEnv.APPLE_API_KEY_ID && candidateEnv.APPLE_API_ISSUER) {
+                  secretLines.push(
+                    `APPLE_API_KEY=${JSON.stringify(p8Path)}`,
+                    `APPLE_API_KEY_ID=${JSON.stringify(candidateEnv.APPLE_API_KEY_ID)}`,
+                    `APPLE_API_ISSUER=${JSON.stringify(candidateEnv.APPLE_API_ISSUER)}`,
+                  );
+                } else {
+                  secretLines.push(
+                    `APPLE_ID=${JSON.stringify(candidateEnv.APPLE_ID || "")}`,
+                    `APPLE_APP_SPECIFIC_PASSWORD=${JSON.stringify(candidateEnv.APPLE_APP_SPECIFIC_PASSWORD || "")}`,
+                    `APPLE_TEAM_ID=${JSON.stringify(candidateEnv.APPLE_TEAM_ID || "")}`,
+                  );
+                }
+              }
+              const secretFile = join(configDir, "secrets", "macos-signing.env");
+              writeFileSync(secretFile, `${secretLines.join("\n")}\n`, { encoding: "utf8", mode: 0o600 });
+              chmodSync(secretFile, 0o600);
+            }
+
+            const effectiveSkipNotarization = resolved.effectiveMode === "signed" && skipNotarization;
+            const outputs = [
+              `requested_signing_mode=${resolved.requestedMode}`,
+              `effective_signing_mode=${resolved.effectiveMode}`,
+              `skip_notarization=${effectiveSkipNotarization ? "true" : "false"}`,
+              `version=${buildVersion}`,
+              `update_channel=${updateChannel}`,
+              `config_dir=${configDir}`,
+            ];
+            appendFileSync(process.env.GITHUB_OUTPUT, `${outputs.join("\n")}\n`, "utf8");
+            console.log(`macOS signing mode: requested=${resolved.requestedMode} -> effective=${resolved.effectiveMode} (skipNotarization=${String(effectiveSkipNotarization)}, version=${buildVersion})`);
+          '
+
+      - name: Preflight macOS packaging configuration and toolchain
+        env:
+          MATRIX_TARGET: ${{ matrix.target }}
+          EFFECTIVE_SIGNING_MODE: ${{ steps.signing.outputs.effective_signing_mode }}
+          SKIP_NOTARIZATION: ${{ steps.signing.outputs.skip_notarization }}
+          BUILD_VERSION: ${{ steps.signing.outputs.version }}
+          UPDATE_CHANNEL: ${{ steps.signing.outputs.update_channel }}
+          CONFIG_DIR: ${{ steps.signing.outputs.config_dir }}
+        run: |
+          set -euo pipefail
+          pkg_args=("$MATRIX_TARGET" "--check" "--build-version" "$BUILD_VERSION")
+          if [[ "$EFFECTIVE_SIGNING_MODE" == "unsigned" ]]; then
+            export STRATA_SIGNING_MODE="unsigned"
+            pkg_args+=("--unsigned")
+          else
+            export DSH_PACKAGING_PRESET="production"
+            export DSH_PACKAGING_CONFIG_DIR="$CONFIG_DIR"
+            export DSH_DESKTOP_UPDATE_CHANNEL="$UPDATE_CHANNEL"
+            if [[ "$SKIP_NOTARIZATION" == "true" ]]; then
+              pkg_args+=("--skip-notarization")
+            fi
+          fi
+          pnpm --filter @deepseek-ai/dsh-desktop run package -- "${pkg_args[@]}"
+
+      - name: Build and package macOS DMG and ZIP installers
+        env:
+          MATRIX_TARGET: ${{ matrix.target }}
+          EFFECTIVE_SIGNING_MODE: ${{ steps.signing.outputs.effective_signing_mode }}
+          SKIP_NOTARIZATION: ${{ steps.signing.outputs.skip_notarization }}
+          BUILD_VERSION: ${{ steps.signing.outputs.version }}
+          UPDATE_CHANNEL: ${{ steps.signing.outputs.update_channel }}
+          CONFIG_DIR: ${{ steps.signing.outputs.config_dir }}
+        run: |
+          set -euo pipefail
+          pkg_args=("$MATRIX_TARGET" "--build-version" "$BUILD_VERSION")
+          if [[ "$EFFECTIVE_SIGNING_MODE" == "unsigned" ]]; then
+            export STRATA_SIGNING_MODE="unsigned"
+            pkg_args+=("--unsigned")
+          else
+            export DSH_PACKAGING_PRESET="production"
+            export DSH_PACKAGING_CONFIG_DIR="$CONFIG_DIR"
+            export DSH_DESKTOP_UPDATE_CHANNEL="$UPDATE_CHANNEL"
+            if [[ "$SKIP_NOTARIZATION" == "true" ]]; then
+              pkg_args+=("--skip-notarization")
+            fi
+          fi
+          pnpm --filter @deepseek-ai/dsh-desktop run package -- "${pkg_args[@]}"
+
+      - name: Verify and stage macOS DMG and ZIP distributable artifacts
+        env:
+          MATRIX_TARGET: ${{ matrix.target }}
+          BUILD_VERSION: ${{ steps.signing.outputs.version }}
+          REQUESTED_SIGNING_MODE: ${{ steps.signing.outputs.requested_signing_mode }}
+          EFFECTIVE_SIGNING_MODE: ${{ steps.signing.outputs.effective_signing_mode }}
+          SKIP_NOTARIZATION: ${{ steps.signing.outputs.skip_notarization }}
+        run: |
+          set -euo pipefail
+          stage_dir="$RUNNER_TEMP/strata-dist-${MATRIX_TARGET}"
+          helper_args=(
+            stage-target
+            --target "$MATRIX_TARGET"
+            --version "$BUILD_VERSION"
+            --requested-signing-mode "$REQUESTED_SIGNING_MODE"
+            --effective-signing-mode "$EFFECTIVE_SIGNING_MODE"
+            --out-dir "$stage_dir"
+          )
+          if [[ "$SKIP_NOTARIZATION" == "true" ]]; then
+            helper_args+=(--skip-notarization)
+          fi
+          pnpm exec tsx scripts/strata/release-helper.ts "${helper_args[@]}"
+
+      - name: Upload staged macOS installer artifacts
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: strata-dist-${{ matrix.target }}
+          path: ${{ runner.temp }}/strata-dist-${{ matrix.target }}/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload macOS packaging run diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: strata-packaging-runs-${{ matrix.target }}
+          path: apps/desktop/.desktop-build/packaging-runs
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Remove temporary macOS signing certificates and API keys from RUNNER_TEMP
+        if: always()
+        run: |
+          rm -rf \
+            "$RUNNER_TEMP/strata-macos-cert.p12" \
+            "$RUNNER_TEMP/AuthKey.p8" \
+            "$RUNNER_TEMP/strata-macos-config"

@@ -1,5 +1,19 @@
 /** Centralized StrataHarness desktop identity, protocol, update, and resource configuration. */
 
+/** Root manifest filename declaring StrataHarness dual-track product version metadata. */
+export const STRATA_PRODUCT_MANIFEST_FILENAME: 'strata-product.json'
+
+/** Environment variable overriding `productVersion` during local updater qualification runs. */
+export const STRATA_PRODUCT_VERSION_ENV: 'STRATA_PRODUCT_VERSION'
+
+/** Validated root `strata-product.json` manifest fields. */
+export interface StrataProductManifest {
+  readonly productName: string
+  readonly productVersion: string
+  readonly upstreamBaseTag: string
+  readonly upstreamRepository: string
+}
+
 /** Shipped desktop product name across Electron menus, dialogs, bundles, and installers. */
 export const STRATA_DESKTOP_PRODUCT_NAME: 'StrataHarness'
 
@@ -14,6 +28,9 @@ export const STRATA_DESKTOP_URL_SCHEME: 'strata'
 
 /** Filename prefix emitted for packaged desktop installers and archives. */
 export const STRATA_DESKTOP_ARTIFACT_PREFIX: 'strataharness'
+
+/** Path prefix used for static HTTPS auto-update feeds and binary objects. */
+export const STRATA_UPDATE_RELEASE_PREFIX: 'strataharness'
 
 /** Custom URL protocol registration passed to electron-builder. */
 export const STRATA_DESKTOP_PROTOCOLS: readonly [{
@@ -81,3 +98,18 @@ export function strataBundledExtraResources(repositoryRoot: string): ReadonlyArr
   readonly to: 'strataharness' | 'strata-skills/designer'
   readonly filter: readonly string[]
 }>
+
+/**
+ * Read and validate the root `strata-product.json` manifest.
+ * @param repositoryRoot - Monorepo root directory containing `strata-product.json`.
+ * @returns Validated product manifest.
+ */
+export function readStrataProductManifest(repositoryRoot?: string): StrataProductManifest
+
+/**
+ * Resolve the StrataHarness product SemVer for packaging, installers, and local updater qualification.
+ * @param env - Environment that may define `STRATA_PRODUCT_VERSION`.
+ * @param repositoryRoot - Monorepo root directory containing `strata-product.json`.
+ * @returns Validated StrataHarness product SemVer string.
+ */
+export function resolveStrataProductVersion(env?: NodeJS.ProcessEnv, repositoryRoot?: string): string
