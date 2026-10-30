@@ -222,7 +222,8 @@
     "strata:update-methodology": "tsx scripts/strata/fork-ops.ts update-methodology",
     "strata:audit-overrides": "tsx scripts/strata/fork-ops.ts audit-overrides",
     "strata:check-upstream": "tsx scripts/strata/fork-ops.ts check-upstream",
-    "strata:prepare-upstream-sync": "tsx scripts/strata/fork-ops.ts prepare-upstream-sync"
+    "strata:prepare-upstream-sync": "tsx scripts/strata/fork-ops.ts prepare-upstream-sync",
+    "strata:changelog": "tsx scripts/strata/release-helper.ts changelog"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-hooks-claude-code": "workspace:*",

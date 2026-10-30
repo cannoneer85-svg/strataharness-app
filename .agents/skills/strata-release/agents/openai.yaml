@@ -1,0 +1,5 @@
+interface:
+  display_name: "Strata Release"
+  short_description: "Prepare version, Russian release highlights, strata-v* tag, and confirmed push"
+policy:
+  allow_implicit_invocation: false

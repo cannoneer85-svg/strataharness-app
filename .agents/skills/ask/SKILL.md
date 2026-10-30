@@ -125,6 +125,7 @@ Helper skills support specific phases of work without defining the outer lifecyc
 
 - [`retro`](../retro/SKILL.md) — When completing a session, bug diagnosis, or review where recurring friction occurred. Runs a retrospective across 7 categories to turn mechanical friction into deterministic checks, linters, or test assertions.
 - [`pr`](../pr/SKILL.md) — When preparing a Pull Request description. Formats a high-signal summary following Show-Me visual demonstration, Before/After observable evidence, and Merge Danger analysis (never pushes).
+- [`strata-release`](../strata-release/SKILL.md) — When cutting a `StrataHarness Desktop` release (`strata-v*`). Runs preflight checks, previews `strata:changelog`, confirms target SemVer (including initial `1.0.0` without an extra bump) and Russian release highlights in `docs/strata/releases/v<version>.md`, creates the local release commit and annotated tag, and pushes to `origin` only after explicit user confirmation.
 
 ### Human interaction, learning, and writing
 

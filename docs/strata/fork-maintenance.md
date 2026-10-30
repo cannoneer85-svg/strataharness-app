@@ -6,6 +6,8 @@
 
 - Доменный глоссарий: [`.agents/CONTEXT.md`](../../.agents/CONTEXT.md)
 - Спецификация инфраструктуры релизов и `Soft-Fork`: [`docs/specs/0001-strata-ci-release-and-fork-sync-spec.md`](../specs/0001-strata-ci-release-and-fork-sync-spec.md)
+- Спецификация автогенерации списка изменений релиза и скилла выпуска версий: [`docs/specs/0002-strata-release-changelog-and-skill-spec.md`](../specs/0002-strata-release-changelog-and-skill-spec.md)
+- Ручной интерактивный скилл выпуска релиза: [`.agents/skills/strata-release/SKILL.md`](../../.agents/skills/strata-release/SKILL.md)
 - Архитектурные решения (Agent Notes):
   - [Dual-track product versioning for StrataHarness Desktop](../../.agents/notes/implemented/architecture/2026-10-29-strata-dual-track-product-versioning.md)
   - [Isolate upstream GitHub Actions workflows via archive relocation](../../.agents/notes/implemented/process/2026-10-29-upstream-workflow-relocation-isolation.md)
@@ -167,23 +169,63 @@ pnpm run strata:status
 2. [`.github/workflows/strata-macos-package.yml`](../../.github/workflows/strata-macos-package.yml) — матричная сборка `mac-arm64` и `mac-x64` (`fail-fast: false`) на раннере `macos-15` (с автоматической установкой Rosetta 2 для `mac-x64` и обязательной генерацией пары `.dmg` + `.zip` для каждой архитектуры как в `signed`, так и в `unsigned` режиме).
 3. [`.github/workflows/strata-release.yml`](../../.github/workflows/strata-release.yml) — оркестратор атомарного релиза по пушу тега `strata-v*` или ручному `workflow_dispatch`.
 
-### Стандартный выпуск боевого релиза по тегу
+### Гибридные релизные заметки (`Release Highlights` + `What's Changed`) и предпросмотр `strata:changelog`
 
-1. Убедитесь, что `productVersion` в [`strata-product.json`](../../strata-product.json) установлена в целевое значение (например, `1.1.0`), сабмодуль `resources/strataharness` чист и указывает на закоммиченную ревизию, а `pnpm run strata:audit-overrides` проходит без ошибок:
+Генератор релизных заметок в [`scripts/strata/release-helper.ts`](../../scripts/strata/release-helper.ts) собирает `RELEASE_NOTES.md` по гибридной схеме из версионного продуктового резюме и истории Git:
+
+- **Продуктовое резюме на русском языке (`## Release Highlights`):** читается из файла `docs/strata/releases/v<version>.md` (например, готовое резюме первого выпуска [`docs/strata/releases/v1.0.0.md`](./releases/v1.0.0.md)) и встраивается сразу после технического блока `## Release Metadata` перед секцией `## What's Changed`. Дублирующий заголовок первого уровня (`# StrataHarness v...`) срезается автоматически; сам файл оформляется по правилу «один абзац или пункт списка на одну физическую строку».
+- **Мягкий фоллбэк без падения сборки:** если файл `docs/strata/releases/v<version>.md` отсутствует или пуст (например, при прямом тестовом запуске через кнопку `Run workflow` в GitHub Actions), сборка не прерывается — генератор выводит диагностическое предупреждение в `stderr` и публикует релиз с автоматической секцией `## What's Changed`.
+- **Выбор базового тега сравнения (`baseline`):** для первого релиза `1.0.0` без предшествующих тегов `strata-v*` базой сравнения служит тег движка `upstreamBaseTag` из [`strata-product.json`](../../strata-product.json) (`dsh-v0.2.1-rc.4`); для стабильного релиза (`1.0.1`, `1.1.0`, `2.0.0`) выбирается максимальный по SemVer предшествующий стабильный `strata-v*` (промежуточные пререлизы `-rc.*` пропускаются); для пререлиза (`1.1.0-rc.2`) выбирается максимальный по SemVer любой предшествующий `strata-v*`.
+- **Агрегация обновлений ядра и фильтрация шума `Soft-Fork`:** транзитивные коммиты апстрима (`^<upstreamBaseTag>`) исключаются из поштучного перечня и при смене базового тега сворачиваются в одну строку `Engine upgraded: dsh-vA -> dsh-vB (N upstream commit(s))`, изменение gitlink-указателя `resources/strataharness` отражается отдельной строкой ревизии методологии, а служебные коммиты подготовки релиза (`chore(strata): bump product version...`, `chore(strata): prepare release...`) отфильтровываются. Продуктовые коммиты и `strata(override)` группируются в пять разделов (`Features`, `Fixes`, `Engine & Desktop Overrides`, `CI & Tooling`, `Documentation & Other`) с ограничением в 50 элементов и строкой `…and K more commit(s)`.
+
+Проверить подхват русского резюме, выбранный `baseline` и итоговый блок `## What's Changed` локально до постановки тега можно командой `strata:changelog`:
+
+```sh
+# Markdown-предпросмотр для текущей productVersion из strata-product.json
+pnpm run strata:changelog
+
+# Предпросмотр для будущей целевой версии со строгой проверкой разметки и ссылок docs/strata/releases/v1.1.0.md
+pnpm run strata:changelog -- --version 1.1.0 --strict-summary
+
+# Машиночитаемый JSON-вывод с явной базовой ревизией и целевым коммитом
+pnpm run strata:changelog -- --version 1.0.1 --base strata-v1.0.0 --target-ref HEAD --json
+```
+
+### Рекомендуемый интерактивный выпуск через ручной скилл `/strata-release`
+
+Штатный способ подготовки и выпуска релиза в агентской сессии — ручной скилл [`.agents/skills/strata-release/SKILL.md`](../../.agents/skills/strata-release/SKILL.md) (вызывается явно командой `/strata-release`; автоматический вызов моделью отключён через `disable-model-invocation: true` и `allow_implicit_invocation: false`):
+
+1. **Предпроверка (`Preflight`):** скилл проверяет чистоту рабочего дерева и активную ветку (`git status --short` и `git branch --show-current` — при незакоммиченных файлах или `detached HEAD` немедленно останавливается), запускает `pnpm run strata:status` и `pnpm run strata:audit-overrides`, подтягивает удалённые теги `strata-v*` и `dsh-v*` из `origin` (`git fetch origin --tags`), проверяет актуальность ветки относительно `origin/<branch>` и наличие локального `upstreamBaseTag`, сверяет существующие теги `strata-v*` локально и в `origin` и формирует предпросмотр через `pnpm run strata:changelog`.
+2. **Определение сценария версии (первый релиз `1.0.0` или последующий SemVer-инкремент):**
+   - *Выпуск первой ещё не тегированной версии `1.0.0`:* если в [`strata-product.json`](../../strata-product.json) уже записана `"productVersion": "1.0.0"`, но тег `strata-v1.0.0` отсутствует локально и в `origin`, скилл предлагает выпустить `1.0.0` **без лишнего инкремента** до `1.0.1`, использует готовое резюме [`docs/strata/releases/v1.0.0.md`](./releases/v1.0.0.md) и строит `What's Changed` от `dsh-v0.2.1-rc.4`;
+   - *Выпуск последующих версий (`1.0.1`, `1.1.0`, `2.0.0` или `-rc.N`):* если тег текущей `productVersion` уже выпущен, скилл проверяет диапазон изменений от `strata-v<productVersion>` (при нуле функциональных коммитов и нуле дельт движка/методологии блокирует пустой релиз), рекомендует `patch` / `minor` / `major` и готовит черновик русского резюме `docs/strata/releases/v<targetVersion>.md`.
+3. **Точка контроля 1 и локальная подготовка:** после явного утверждения пользователем целевой версии `<targetVersion>` и текста резюме скилл повторно проверяет отсутствие коллизии тега `strata-v<targetVersion>` (перезапись существующих тегов запрещена), при изменении версии запускает `pnpm run strata:version <targetVersion>`, записывает `docs/strata/releases/v<targetVersion>.md`, проверяет `pnpm run strata:audit-overrides`, `pnpm run strata:changelog -- --version <targetVersion> --strict-summary` (контроль наличия резюме, однострочных абзацев и относительных ссылок) и `git diff --check`, создаёт локальный коммит `chore(strata): prepare release v<targetVersion>` (если файлы изменились), ставит аннотированный тег `strata-v<targetVersion>` и запускает `release-helper.ts preflight`.
+4. **Точка контроля 2 — подтверждённый атомарный `git push`:** скилл показывает хэш коммита, тег `strata-v<targetVersion>`, базовый тег движка `<upstreamBaseTag>`, адрес `origin` и точную команду `git push --atomic origin main refs/tags/<upstreamBaseTag>:refs/tags/<upstreamBaseTag> refs/tags/strata-v<targetVersion>:refs/tags/strata-v<targetVersion>`, выполняя отправку в `origin` **только после явного подтверждения пользователя** (отправка в `upstream` исключена, а флаг `--atomic` гарантирует, что при отклонении ветки релизный тег не уйдёт в `origin` отдельно).
+
+### Ручной выпуск боевого релиза из терминала и публикация в CI
+
+Если релиз выпускается вручную из терминала без агентской сессии:
+
+1. Для новой версии (`1.0.1`, `1.1.0`, `2.0.0`) подтяните теги `origin`, поднимите версию продукта, подготовьте файл русского резюме `docs/strata/releases/v<version>.md` (для первого выпуска `1.0.0`, когда `productVersion` уже равна `1.0.0` и [`docs/strata/releases/v1.0.0.md`](./releases/v1.0.0.md) закоммичен, шаг `strata:version` пропускается) и проверьте предпросмотр изменений со строгой валидацией резюме:
    ```sh
+   git fetch origin --tags
    pnpm run strata:version 1.1.0
+   # Создайте или обновите docs/strata/releases/v1.1.0.md (один абзац / пункт списка на строку)
    pnpm run strata:audit-overrides
+   pnpm run strata:changelog -- --version 1.1.0 --strict-summary
    ```
-2. Закоммитьте обновление версии в основную ветку, создайте аннотированный тег `strata-v<productVersion>` и отправьте его в `origin`:
+2. Зафиксируйте подготовку релиза одним коммитом (если менялись `strata-product.json`, `packages/strata/*/package.json` или `docs/strata/releases/v<version>.md`), создайте аннотированный тег `strata-v<version>` и атомарно отправьте ветку вместе с базовым тегом движка `<upstreamBaseTag>` (из `strata-product.json`) и релизным тегом в `origin`:
    ```sh
+   git add -- strata-product.json packages/strata/product-bundle/package.json packages/strata/ui-brand/package.json docs/strata/releases/v1.1.0.md
+   git commit -m "chore(strata): prepare release v1.1.0"
    git tag -a strata-v1.1.0 -m "StrataHarness v1.1.0"
-   git push origin strata-v1.1.0
+   git push --atomic origin main refs/tags/dsh-v0.2.1-rc.4:refs/tags/dsh-v0.2.1-rc.4 refs/tags/strata-v1.1.0:refs/tags/strata-v1.1.0
    ```
-3. Джоба `preflight` в `strata-release.yml` проверит строгое равенство тега `strata-v1.1.0` и `productVersion: "1.1.0"` в `strata-product.json` (при расхождении конвейер немедленно прерывается до старта дорогостоящих раннеров Windows и macOS).
+3. Джоба `preflight` в `strata-release.yml` проверит строгое равенство тега `strata-v<version>` и `productVersion` в `strata-product.json` (при расхождении конвейер немедленно прерывается до старта дорогостоящих раннеров Windows и macOS).
 4. После успешного завершения **всех трёх платформ** (`win-x64`, `mac-arm64`, `mac-x64`) джоба `publish` формирует:
-   - единый GitHub Release `StrataHarness v1.1.0` с установщиками `.exe`, `.dmg`, `.zip`;
+   - единый GitHub Release `StrataHarness v<version>` с установщиками `.exe`, `.dmg`, `.zip`;
    - файл контрольных сумм `SHA256SUMS.txt` для всех опубликованных бинарных файлов;
-   - автоматически сгенерированные `RELEASE_NOTES.md` с указанием продуктовой версии, базового движка `Engine: DSH <version> (<upstreamBaseTag>)`, ревизии методологии и статуса цифровой подписи (включая инструкции первого запуска для `-unsigned` сборок);
+   - гибридные `RELEASE_NOTES.md` с паспортом сборки (`Release Metadata`: продуктовая версия, `Engine: DSH <version> (<upstreamBaseTag>)`, ревизия методологии), русским продуктовым резюме (`Release Highlights` из `docs/strata/releases/v<version>.md`), автоматическим списком изменений (`What's Changed`) и статусом цифровой подписи (включая инструкции первого запуска для `-unsigned` сборок);
    - архивный артефакт `update-feed` (и при наличии `STRATA_S3_*` — синхронизацию статического HTTPS-фида `strataharness/feeds/<target>/`).
 
 Если хотя бы одна из трёх целевых платформ завершилась ошибкой, боевой GitHub Release и статический фид автообновления **не публикуются** (принцип атомарности релиза), при этом собранные артефакты успешных платформ (`strata-dist-*`) и диагностические логи (`strata-packaging-runs-*`) сохраняются в GitHub Actions для разбора.

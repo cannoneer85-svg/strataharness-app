@@ -100,6 +100,7 @@
 | [git-guardrails-claude-code](skills/git-guardrails-claude-code/SKILL.md) | Хуки Claude Code, блокирующие опасные git-команды | авто | matt | active |
 | [wizard](skills/wizard/SKILL.md) | Интерактивный bash-мастер для шагов, которые может сделать только человек | авто | matt+правки | active |
 | [pr](skills/pr/SKILL.md) | Справочник оформления описания PR по Show-Me, Before/After Evidence и Merge Danger | авто | matt+правки | active |
+| [strata-release](skills/strata-release/SKILL.md) | Интерактивный мастер подготовки и выпуска десктоп-релиза `StrataHarness`: предпросмотр `strata:changelog`, русское резюме `docs/strata/releases/v*.md`, опциональный bump версии, тег `strata-v*` и подтверждённый `git push` | ручной | свой | active |
 
 ## Мета (Шаблон)
 
