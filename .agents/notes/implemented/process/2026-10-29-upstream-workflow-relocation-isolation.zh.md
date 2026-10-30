@@ -12,9 +12,9 @@ GitHub Actions 会自动发现并注册直接位于 `.github/workflows/` 目录�
 
 ## 决策
 
-全部二十五个上游工作流文件通过 `git mv` 按字节原样存放于 `.github/upstream-workflows/*.yml`，不做任何内容修改，使 `.github/workflows/` 仅保留命名为 `.github/workflows/strata-*.yml` 的 StrataHarness 自有工作流。
+全部二十五个上游工作流文件与 `.github/dependabot.yml` 均通过 `git mv` 按字节原样存放于 `.github/upstream-workflows/`，不做任何内容修改，使 `.github/workflows/` 仅保留命名为 `.github/workflows/strata-*.yml` 的 StrataHarness 自有工作流，并在 Soft-Fork 中保持 Dependabot 定期版本更新处于未激活状态。
 
-仅在上游 Vitest 工作流测试与评审归属辅助脚本中通过 `strata(override)` 改动更新工作流目录路径常量，从而让 `pnpm run test` 继续针对 `.github/upstream-workflows/` 校验上游 YAML 集合，同时使 Git 的 `ort` 合并策略能够在后续合并 `dsh-v*` 时自动追踪 100% 相似度的重命名。`scripts/strata/fork-ops.ts`（`audit-overrides`）与 `scripts/strata/strata-workflows.spec.ts` 通过机械检查强制执行该不变量：一旦 `.github/workflows/` 中出现任何不匹配 `strata-*.yml` 的文件，检查立即失败。
+仅在上游 Vitest 工作流测试与评审归属辅助脚本中通过 `strata(override)` 改动更新工作流目录路径常量，从而让 `pnpm run test` 继续针对 `.github/upstream-workflows/` 校验上游 YAML 集合，同时使 Git 的 `ort` 合并策略能够在后续合并 `dsh-v*` 时自动追踪 100% 相似度的重命名。`scripts/strata/fork-ops.ts`（`audit-overrides`）与 `scripts/strata/strata-workflows.spec.ts` 通过机械检查强制执行该不变量：一旦 `.github/workflows/` 中出现任何不匹配 `strata-*.yml` 的文件、`.github/` 下存在 `.github/dependabot.{yml,yaml}`，或 `.github/upstream-workflows/dependabot.yml` 缺失，检查立即失败。
 
 ## 曾考虑的替代方案
 
@@ -26,8 +26,8 @@ GitHub Actions 会自动发现并注册直接位于 `.github/workflows/` 目录�
 
 ## 后果
 
-- 全部二十五个上游工作流 YAML 文件按字节原样位于 `.github/upstream-workflows/` 下，且 `.github/workflows/` 仅包含四个 `strata-*.yml` 工作流（`strata-windows-package.yml`、`strata-macos-package.yml`、`strata-release.yml` 与 `strata-upstream-watch.yml`）。
+- 全部二十五个上游工作流 YAML 文件与 `dependabot.yml` 按字节原样位于 `.github/upstream-workflows/` 下，且 `.github/workflows/` 仅包含四个 `strata-*.yml` 工作流（`strata-windows-package.yml`、`strata-macos-package.yml`、`strata-release.yml` 与 `strata-upstream-watch.yml`）。
 - 全部九个上游工作流 Vitest 测试套件均针对 `.github/upstream-workflows/` 通过，且不削弱任何 YAML 结构断言。
-- 一旦 `.github/workflows/` 中出现任何非 `strata-*.yml` 文件，`pnpm run strata:audit-overrides` 与 `scripts/strata/strata-workflows.spec.ts` 会立即报错失败。
+- 一旦 `.github/workflows/` 中出现任何非 `strata-*.yml` 文件、`.github/` 下出现 `.github/dependabot.{yml,yaml}`，或 `.github/upstream-workflows/dependabot.yml` 被删除，`pnpm run strata:audit-overrides` 与 `scripts/strata/strata-workflows.spec.ts` 会立即报错失败。
 
-当未来某个上游 `dsh-v*` 版本新增了全新的 `.github/workflows/<new>.yml` 文件而非修改已重命名的二十五个文件之一时，Git 会在执行 `git merge --no-commit dsh-v*` 期间将该新文件放入 `.github/workflows/`；在同步必选门禁与 CI 预检中执行 `pnpm run strata:audit-overrides` 可确定性地拦截该新文件，确保在提交前通过 `git mv` 将其迁入 `.github/upstream-workflows/`。
+当未来某个上游 `dsh-v*` 版本新增了全新的 `.github/workflows/<new>.yml` 文件（或重新引入 `.github/dependabot.{yml,yaml}`）而非修改已重命名的归档文件时，Git 会在执行 `git merge --no-commit dsh-v*` 期间将该新文件放入 `.github/` 下；`strata:check-upstream` 会在影响报告中列出该文件，且在同步必选门禁与 CI 预检中执行 `pnpm run strata:audit-overrides` 可确定性地将其拦截，确保在提交前通过 `git mv` 将其迁入 `.github/upstream-workflows/`。

@@ -611,7 +611,7 @@ function formatAuditHuman(report: AuditOverridesReport): string {
 }
 
 /**
- * Audit all Phase 1–4 Soft-Fork isolation, version parity, submodule, and `.github/workflows/` hygiene invariants.
+ * Audit all Phase 1–4 Soft-Fork isolation, version parity, submodule, and `.github/` workflow/Dependabot hygiene invariants.
  * @param repoRoot - Repository root directory to audit.
  * @returns Audit report listing every evaluated invariant and any violations.
  */
@@ -746,41 +746,48 @@ export function auditForkOverrides(repoRoot: string = DEFAULT_REPO_ROOT): AuditO
     })
   }
 
-  // (e) Active GitHub Actions workflow directory hygiene
+  // (e) Active GitHub Actions workflow and Dependabot hygiene
   {
-    const workflowsDir = join(repoRoot, '.github', 'workflows')
+    const githubDir = join(repoRoot, '.github')
+    const workflowsDir = join(githubDir, 'workflows')
+    const archivedDependabotPath = join(githubDir, 'upstream-workflows', 'dependabot.yml')
     const workflowPattern = /^strata-[a-z0-9-]+\.yml$/u
+    const activeDependabotEntries = isDirectory(githubDir)
+      ? readdirSync(githubDir)
+        .filter(name => /^dependabot\.ya?ml$/iu.test(name))
+        .sort((left, right) => left.localeCompare(right))
+        .map(name => `.github/${name}`)
+      : []
+    const hygieneErrors: string[] = []
+    let validFiles: string[] = []
     if (!isDirectory(workflowsDir)) {
-      checks.push({
-        id: 'workflow-directory-hygiene',
-        ok: false,
-        detail: '.github/workflows directory is missing',
-      })
+      hygieneErrors.push('.github/workflows directory is missing')
     } else {
       const entries = readdirSync(workflowsDir, { withFileTypes: true })
         .sort((left, right) => left.name.localeCompare(right.name))
-      const validFiles = entries.filter(entry => entry.isFile() && workflowPattern.test(entry.name)).map(entry => entry.name)
+      validFiles = entries.filter(entry => entry.isFile() && workflowPattern.test(entry.name)).map(entry => entry.name)
       const invalidEntries = entries.filter(entry => !entry.isFile() || !workflowPattern.test(entry.name)).map(entry => entry.name)
       if (invalidEntries.length > 0) {
-        checks.push({
-          id: 'workflow-directory-hygiene',
-          ok: false,
-          detail: `.github/workflows contains non-Strata entries: ${invalidEntries.join(', ')} (only strata-*.yml allowed)`,
-        })
+        hygieneErrors.push(`.github/workflows contains non-Strata entries: ${invalidEntries.join(', ')} (only strata-*.yml allowed)`)
       } else if (validFiles.length === 0) {
-        checks.push({
-          id: 'workflow-directory-hygiene',
-          ok: false,
-          detail: '.github/workflows contains zero strata-*.yml workflow files',
-        })
-      } else {
-        checks.push({
-          id: 'workflow-directory-hygiene',
-          ok: true,
-          detail: `.github/workflows contains ${String(validFiles.length)} valid strata-*.yml workflow(s): ${validFiles.join(', ')}`,
-        })
+        hygieneErrors.push('.github/workflows contains zero strata-*.yml workflow files')
       }
     }
+    if (activeDependabotEntries.length > 0) {
+      hygieneErrors.push(
+        `${activeDependabotEntries.join(', ')} must be relocated to .github/upstream-workflows/ in Soft-Fork mode`,
+      )
+    }
+    if (!isFile(archivedDependabotPath)) {
+      hygieneErrors.push('.github/upstream-workflows/dependabot.yml archive is missing (preserve 100% git mv rename tracking)')
+    }
+    checks.push({
+      id: 'workflow-directory-hygiene',
+      ok: hygieneErrors.length === 0,
+      detail: hygieneErrors.length > 0
+        ? hygieneErrors.join('; ')
+        : `.github/workflows contains ${String(validFiles.length)} valid strata-*.yml workflow(s): ${validFiles.join(', ')}; active .github/dependabot.{yml,yaml} absent and archived under .github/upstream-workflows/dependabot.yml`,
+    })
   }
 
   const violations = checks.filter(check => !check.ok).map(check => `${check.id}: ${check.detail}`)
@@ -928,8 +935,17 @@ function buildUpstreamImpactReport(
     newUpstreamWorkflows = uniqueSortedPaths(
       runGitOrThrow(
         repoRoot,
-        ['diff', '--diff-filter=A', '--name-only', `${manifest.upstreamBaseTag}...${targetTag}`, '--', '.github/workflows/'],
-        `diff added workflows in ${manifest.upstreamBaseTag}...${targetTag}`,
+        [
+          'diff',
+          '--diff-filter=A',
+          '--name-only',
+          `${manifest.upstreamBaseTag}...${targetTag}`,
+          '--',
+          '.github/workflows/',
+          '.github/dependabot.yml',
+          '.github/dependabot.yaml',
+        ],
+        `diff added workflows and dependabot config in ${manifest.upstreamBaseTag}...${targetTag}`,
       ),
     ).filter(path => path.endsWith('.yml') || path.endsWith('.yaml'))
   }
@@ -1047,7 +1063,7 @@ function renderFiveStepChecklist(targetTag: string, impactMarkdown: string): str
     `## 5-Step Soft-Fork Synchronization Checklist (\`${targetTag}\`)`,
     '',
     `1. **Merge without auto-commit:** run \`git merge --no-commit ${targetTag}\` and resolve any overlapping \`strata(override)\` files while preserving override markers.`,
-    '2. **Isolate new workflows & review upgrade guides:** relocate any newly added `.github/workflows/*.yml` files via `git mv` into `.github/upstream-workflows/` and review all listed `docs/upgrade-guide/` entries.',
+    '2. **Isolate new workflows & review upgrade guides:** relocate any newly added `.github/workflows/*.yml` or `.github/dependabot.{yml,yaml}` files via `git mv` into `.github/upstream-workflows/` and review all listed `docs/upgrade-guide/` entries.',
     '3. **Verify Soft-Fork invariants & workspace constraints:** run `pnpm run strata:audit-overrides`, `pnpm run constraints`, and targeted regression suites.',
     `4. **Advance dual-track product version:** run \`pnpm run strata:version minor --upstream-base ${targetTag}\` to bump \`strata-product.json\` and \`@strata/*\` atomically.`,
     '5. **Qualify packaged desktop & local updater:** run `pnpm --filter @deepseek-ai/dsh-desktop run check:package` and `pnpm --filter @deepseek-ai/dsh-desktop run test:updates:local`.',

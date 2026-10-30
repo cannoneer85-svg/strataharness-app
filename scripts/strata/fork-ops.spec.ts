@@ -1,7 +1,7 @@
 /** Behavioral tests for the Soft-Fork operations CLI and upstream release radar workflow. */
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import * as yaml from 'js-yaml'
@@ -120,6 +120,7 @@ function populateCompliantFilesystem(repoRoot: string): void {
   writeText(repoRoot, 'resources/strataharness/AGENTS.md', '# StrataHarness Methodology\n')
   writeText(repoRoot, 'resources/strataharness/.agents/skills/tdd/SKILL.md', '# TDD\n')
   writeText(repoRoot, '.github/workflows/strata-upstream-watch.yml', 'name: Strata Upstream Watch\n')
+  writeText(repoRoot, '.github/upstream-workflows/dependabot.yml', 'version: 2\nupdates: []\n')
 }
 
 function createCompliantFilesystemFixture(): string {
@@ -343,7 +344,7 @@ describe('Soft-Fork Operations CLI — update-methodology & audit-overrides', { 
     expect(() => updateMethodologySubmodule({ repoRoot, ref: 'v1.6.0-broken' })).toThrow(/\.agents\/skills|entrypoint/i)
   })
 
-  it('passes audit-overrides on a compliant tree and fails on stray workflows, version drift, broken isolation, or empty submodule', () => {
+  it('passes audit-overrides on a compliant tree and fails on stray workflows, active dependabot config, version drift, broken isolation, or empty submodule', () => {
     const repoRoot = createCompliantFilesystemFixture()
 
     const cleanReport = auditForkOverrides(repoRoot)
@@ -358,6 +359,26 @@ describe('Soft-Fork Operations CLI — update-methodology & audit-overrides', { 
     expect(strayWorkflowCli.exitCode).toBe(1)
     expect(strayWorkflowCli.stdout).toContain('ci.yml')
     rmSync(join(repoRoot, '.github/workflows/ci.yml'), { force: true })
+
+    // (a2) Active Dependabot config in .github/dependabot.{yml,yaml}
+    writeText(repoRoot, '.github/dependabot.yml', 'version: 2\nupdates: []\n')
+    const strayDependabotCli = runForkOpsCli(['audit-overrides', '--json'], { repoRoot })
+    expect(strayDependabotCli.exitCode).toBe(1)
+    expect(strayDependabotCli.stdout).toContain('.github/dependabot.yml')
+    expect(strayDependabotCli.stdout).toContain('.github/upstream-workflows/')
+    rmSync(join(repoRoot, '.github/dependabot.yml'), { force: true })
+
+    writeText(repoRoot, '.github/dependabot.yaml', 'version: 2\nupdates: []\n')
+    const strayDependabotYamlReport = auditForkOverrides(repoRoot)
+    expect(strayDependabotYamlReport.ok).toBe(false)
+    expect(strayDependabotYamlReport.violations.join('\n')).toContain('.github/dependabot.yaml')
+    rmSync(join(repoRoot, '.github/dependabot.yaml'), { force: true })
+
+    rmSync(join(repoRoot, '.github/upstream-workflows/dependabot.yml'), { force: true })
+    const missingArchiveDependabotReport = auditForkOverrides(repoRoot)
+    expect(missingArchiveDependabotReport.ok).toBe(false)
+    expect(missingArchiveDependabotReport.violations.join('\n')).toContain('.github/upstream-workflows/dependabot.yml')
+    writeText(repoRoot, '.github/upstream-workflows/dependabot.yml', 'version: 2\nupdates: []\n')
 
     // (b) @strata/* version drift
     writeJson(repoRoot, 'packages/strata/ui-brand/package.json', {
@@ -458,6 +479,7 @@ describe('Soft-Fork Operations CLI — check-upstream & prepare-upstream-sync', 
     writeText(upstreamRepo, 'packages/boot/app-boot/src/profile.ts', 'export const BUNDLES = ["base", "upstream-new"]\n')
     writeText(upstreamRepo, 'docs/upgrade-guide/v0.3.0/item/guide.md', '# Upgrade to v0.3.0\n')
     writeText(upstreamRepo, '.github/workflows/new-upstream-check.yml', 'name: New Upstream Check\n')
+    writeText(upstreamRepo, '.github/dependabot.yaml', 'version: 2\nupdates: []\n')
     runGit(upstreamRepo, ['add', '.'])
     runGit(upstreamRepo, ['commit', '-m', 'feat: release 0.3.0'])
     runGit(upstreamRepo, ['tag', 'dsh-v0.3.0'])
@@ -475,7 +497,7 @@ describe('Soft-Fork Operations CLI — check-upstream & prepare-upstream-sync', 
       impactAvailable: true,
       overlappingOverrideFiles: ['packages/boot/app-boot/src/profile.ts'],
       upgradeGuides: ['docs/upgrade-guide/v0.3.0/item/guide.md'],
-      newUpstreamWorkflows: ['.github/workflows/new-upstream-check.yml'],
+      newUpstreamWorkflows: ['.github/dependabot.yaml', '.github/workflows/new-upstream-check.yml'],
     })
 
     const radarMdCli = runForkOpsCli(['check-upstream', '--local', '--markdown'], { repoRoot: forkRepo })
@@ -620,9 +642,12 @@ describe('Strata Upstream Release Radar Workflow & Real Repository Audit', () =>
     expect(grepResult.stdout.trim()).toBe('')
   })
 
-  it('passes strata:audit-overrides against the real repository root', () => {
+  it('passes strata:audit-overrides against the real repository root and keeps dependabot.yml archived under .github/upstream-workflows/', () => {
     const report = auditForkOverrides(realRepoRoot)
     expect(report.violations).toEqual([])
     expect(report.ok).toBe(true)
+    expect(existsSync(join(realRepoRoot, '.github/dependabot.yml'))).toBe(false)
+    expect(existsSync(join(realRepoRoot, '.github/dependabot.yaml'))).toBe(false)
+    expect(existsSync(join(realRepoRoot, '.github/upstream-workflows/dependabot.yml'))).toBe(true)
   })
 })

@@ -125,11 +125,11 @@ git merge --no-commit --no-ff dsh-vX.Y.Z
 
 При разрешении конфликтов и проверке индекса соблюдайте три инварианта `Soft-Fork`:
 
-1. **Апстримные воркфлоу GitHub Actions:** двадцать пять базовых воркфлоу перенесены через `git mv` в `.github/upstream-workflows/`, поэтому Git автоматически применяет правки апстрима к перенесённым файлам. Однако если апстрим в новом релизе **добавил совершенно новый файл** `.github/workflows/<new-upstream>.yml`, немедленно перенесите его побайтово в архивный каталог:
+1. **Апстримные воркфлоу GitHub Actions и Dependabot:** двадцать пять базовых воркфлоу и конфигурация `.github/dependabot.yml` перенесены побайтово через `git mv` в `.github/upstream-workflows/`, поэтому Git автоматически применяет правки апстрима к перенесённым файлам, а плановые обновления версий `Dependabot` (`version updates`) отключены в `Soft-Fork` (в настройках GitHub-репозитория флаг `Dependabot security updates` также должен оставаться выключенным). Однако если апстрим в новом релизе **добавил совершенно новый файл** `.github/workflows/<new-upstream>.yml` (или повторно ввёл `.github/dependabot.{yml,yaml}`), немедленно перенесите его побайтово в архивный каталог без флага `-f` (если апстрим когда-либо добавит одноимённый воркфлоу `.github/workflows/dependabot.yml`, перенесите его как `.github/upstream-workflows/workflow-dependabot.yml`, чтобы не перезаписать архив конфигурации `Dependabot`):
    ```sh
    git mv .github/workflows/<new-upstream>.yml .github/upstream-workflows/<new-upstream>.yml
    ```
-   В `.github/workflows/` разрешены исключительно файлы с префиксом `strata-*.yml`.
+   В `.github/workflows/` разрешены исключительно файлы с префиксом `strata-*.yml`, а наличие активного `.github/dependabot.{yml,yaml}` или удаление архивного `.github/upstream-workflows/dependabot.yml` блокируется гейтом `pnpm run strata:audit-overrides`.
 2. **Трёхуровневая изоляция данных и идентичности:** убедитесь, что `apps/desktop/src/paths.ts` по-прежнему указывает на `.strataharness`, `apps/desktop/scripts/strata-desktop-config.mjs` сохраняет `com.nikl.strataharness`, `@strata/desktop` и схему `strata://`, а `DOWNLOAD_PROD_ORIGIN` не откатился на `download.deepseek.com`.
 3. **Версии пакетов ядра:** примите новые версии `0.x.y` из апстрима во всех `@deepseek-ai/dsh-*` и корневом `package.json` без ручных правок.
 
