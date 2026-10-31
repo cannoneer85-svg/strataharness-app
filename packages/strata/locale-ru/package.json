@@ -1,7 +1,7 @@
 {
   "name": "@strata/locale-ru",
   "description": "StrataHarness Russian language pack: Phase-1 locale registration, typed UI dictionaries, and built-in LocalizedText catalog",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publishConfig": {
     "access": "public"
   },
