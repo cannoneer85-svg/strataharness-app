@@ -10,6 +10,15 @@ on:
         required: false
         default: ''
         type: string
+      channel:
+        description: 'Upstream release channel filter (rc allows stable + rc; stable allows stable only; all includes alpha/beta)'
+        required: false
+        default: 'rc'
+        type: choice
+        options:
+          - rc
+          - stable
+          - all
       dry_run:
         description: 'Generate the impact summary without mutating GitHub Issues or webhooks'
         required: false
@@ -77,6 +86,7 @@ jobs:
         id: check
         env:
           INPUT_UPSTREAM_URL: ${{ inputs.upstream_url }}
+          INPUT_CHANNEL: ${{ inputs.channel }}
         run: |
           set -euo pipefail
           report_json="$RUNNER_TEMP/upstream-impact-report.json"
@@ -85,6 +95,9 @@ jobs:
           cli_args=(--fetch --json)
           if [[ -n "${INPUT_UPSTREAM_URL:-}" ]]; then
             cli_args+=(--remote-url "$INPUT_UPSTREAM_URL")
+          fi
+          if [[ -n "${INPUT_CHANNEL:-}" ]]; then
+            cli_args+=(--channel "$INPUT_CHANNEL")
           fi
 
           pnpm -s run strata:check-upstream "${cli_args[@]}" > "$report_json"
@@ -95,6 +108,7 @@ jobs:
             fs.writeFileSync(process.argv[2], `${report.markdownSummary}\n`, "utf8");
             const outputs = [
               `up_to_date=${report.upToDate ? "true" : "false"}`,
+              `channel=${report.channel}`,
               `upstream_base_tag=${report.upstreamBaseTag}`,
               `latest_tag=${report.latestTag ?? ""}`,
               `newer_count=${String(report.newerTags.length)}`,
@@ -106,21 +120,50 @@ jobs:
 
           cat "$report_md" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Create or update deduplicated upstream radar GitHub Issue
-        if: steps.check.outputs.up_to_date == 'false' && inputs.dry_run != true
+      - name: Sync deduplicated upstream radar GitHub Issue
+        if: inputs.dry_run != true && steps.check.outputs.channel == 'rc'
         env:
           GH_TOKEN: ${{ github.token }}
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          UP_TO_DATE: ${{ steps.check.outputs.up_to_date }}
+          CHANNEL: ${{ steps.check.outputs.channel }}
           UPSTREAM_BASE_TAG: ${{ steps.check.outputs.upstream_base_tag }}
           LATEST_TAG: ${{ steps.check.outputs.latest_tag }}
         run: |
           set -euo pipefail
-          if [[ "${INPUT_DRY_RUN:-false}" == "true" ]]; then
-            echo "Dry run requested; skipping GitHub Issue creation/update."
+          if [[ "${INPUT_DRY_RUN:-false}" == "true" || "${CHANNEL}" != "rc" ]]; then
+            echo "Diagnostic run (dry_run=${INPUT_DRY_RUN:-false}, channel=${CHANNEL}); skipping GitHub Issue mutation."
             exit 0
           fi
 
           label_name="strata:upstream-radar"
+          open_issues_raw="$(
+            gh issue list \
+              --state open \
+              --label "$label_name" \
+              --limit 100 \
+              --json number \
+              --jq 'sort_by(.number) | .[].number'
+          )"
+          open_issues=()
+          if [[ -n "$open_issues_raw" ]]; then
+            mapfile -t open_issues <<< "$open_issues_raw"
+          fi
+
+          if [[ "${UP_TO_DATE}" == "true" ]]; then
+            if [[ "${#open_issues[@]}" -eq 0 ]]; then
+              echo "Upstream base ${UPSTREAM_BASE_TAG} is up to date for channel '${CHANNEL}'; no open radar issue to close."
+              exit 0
+            fi
+            close_comment="Closing automatically: no newer upstream \`dsh-v*\` tags matching channel \`${CHANNEL}\` exist above current base \`${UPSTREAM_BASE_TAG}\`."
+            for issue_num in "${open_issues[@]}"; do
+              [[ -z "$issue_num" ]] && continue
+              gh issue close "$issue_num" --comment "$close_comment"
+              echo "Closed stale upstream radar issue #${issue_num}."
+            done
+            exit 0
+          fi
+
           issue_title="Upstream Release Available: ${LATEST_TAG} (current base: ${UPSTREAM_BASE_TAG})"
           report_md="$RUNNER_TEMP/upstream-impact-report.md"
 
@@ -129,20 +172,12 @@ jobs:
             --description "Automated StrataHarness Soft-Fork upstream dsh-v* release radar" \
             --force
 
-          existing_issue="$(
-            gh issue list \
-              --state open \
-              --label "$label_name" \
-              --limit 10 \
-              --json number,title \
-              --jq 'sort_by(.number) | .[0].number // empty'
-          )"
-
-          if [[ -n "$existing_issue" ]]; then
-            gh issue edit "$existing_issue" \
+          if [[ "${#open_issues[@]}" -gt 0 && -n "${open_issues[0]:-}" ]]; then
+            primary_issue="${open_issues[0]}"
+            gh issue edit "$primary_issue" \
               --title "$issue_title" \
               --body-file "$report_md"
-            echo "Updated open upstream radar issue #${existing_issue}."
+            echo "Updated open upstream radar issue #${primary_issue}."
           else
             gh issue create \
               --title "$issue_title" \
@@ -151,10 +186,11 @@ jobs:
           fi
 
       - name: Notify architect webhook if configured
-        if: steps.check.outputs.up_to_date == 'false' && inputs.dry_run != true
+        if: steps.check.outputs.up_to_date == 'false' && steps.check.outputs.channel == 'rc' && inputs.dry_run != true
         env:
           WEBHOOK_URL: ${{ secrets.STRATA_ARCHITECT_WEBHOOK_URL }}
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          CHANNEL: ${{ steps.check.outputs.channel }}
           UPSTREAM_BASE_TAG: ${{ steps.check.outputs.upstream_base_tag }}
           LATEST_TAG: ${{ steps.check.outputs.latest_tag }}
           NEWER_COUNT: ${{ steps.check.outputs.newer_count }}
@@ -164,8 +200,8 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          if [[ "${INPUT_DRY_RUN:-false}" == "true" || -z "${WEBHOOK_URL:-}" ]]; then
-            echo "STRATA_ARCHITECT_WEBHOOK_URL not configured or dry_run active; skipping webhook notification."
+          if [[ "${INPUT_DRY_RUN:-false}" == "true" || "${CHANNEL}" != "rc" || -z "${WEBHOOK_URL:-}" ]]; then
+            echo "STRATA_ARCHITECT_WEBHOOK_URL not configured or diagnostic run active; skipping webhook notification."
             exit 0
           fi
 

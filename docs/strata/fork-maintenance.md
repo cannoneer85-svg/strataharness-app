@@ -76,15 +76,20 @@ pnpm run strata:update-methodology -- --remote
 
 Клиентское приложение `StrataHarness Desktop` полностью автономно и **не выполняет никаких фоновых запросов к инфраструктуре апстрима**. Отслеживание новых релизов `DeepSeek Harness` выполняется исключительно на стороне репозитория для системного архитектора через воркфлоу [`.github/workflows/strata-upstream-watch.yml`](../../.github/workflows/strata-upstream-watch.yml):
 
-- **Расписание и ручной запуск:** запускается ежедневно в `07:00 UTC` (`cron: '0 7 * * *'`), а также вручную через `workflow_dispatch` (с параметрами `upstream_url` и `dry_run`).
-- **Логика проверки:** вызывает `pnpm run strata:check-upstream --fetch --json`, сравнивая список тегов `dsh-v*` из `upstreamRepository` с текущим `upstreamBaseTag` в `strata-product.json`.
-- **Дедупликация уведомлений:** если обнаружен более новый тег `dsh-v*`, воркфлоу создаёт GitHub Issue с меткой `strata:upstream-radar` и подробным `Impact Report` (список новых тегов, новые карточки в `docs/upgrade-guide/`, пересечения изменённых в апстриме файлов с локальными коммитами `strata(override)`). Если открытый Issue с меткой `strata:upstream-radar` уже существует, воркфлоу идемпотентно обновляет его заголовок и описание вместо создания дубликатов.
+- **Расписание и ручной запуск:** запускается ежедневно в `07:00 UTC` (`cron: '0 7 * * *'`), а также вручную через `workflow_dispatch` (с параметрами `upstream_url`, `channel` и `dry_run`).
+- **Логика проверки и фильтрация каналов:** вызывает `pnpm run strata:check-upstream --fetch --json`, сравнивая список тегов `dsh-v*` из `upstreamRepository` с текущим `upstreamBaseTag` в `strata-product.json`. По умолчанию активен фильтр канала `--channel rc` (белый список финальных стабильных релизов `dsh-vX.Y.Z` и релиз-кандидатов `dsh-vX.Y.Z-rc*`; ранние пререлизы `alpha`, `beta`, `nightly` и др. игнорируются). Для ручной диагностики доступны также режимы `--channel stable` (только финальные стабильные релизы без суффиксов) и `--channel all` (все SemVer-теги апстрима).
+- **Дедупликация и автозакрытие уведомлений:** мутация GitHub Issues и отправка Webhook выполняются строго для канонического канала `rc` при `dry_run: false` (диагностические ручные прогоны `workflow_dispatch` с `channel: stable` или `channel: all` формируют только отчёт в `GITHUB_STEP_SUMMARY`, не перезаписывая и не закрывая боевой Issue радара). Если в канале `rc` обнаружен более новый тег `dsh-v*`, воркфлоу создаёт GitHub Issue с меткой `strata:upstream-radar` и подробным `Impact Report` (активный фильтр канала, список новых тегов, новые карточки в `docs/upgrade-guide/`, пересечения изменённых в апстриме файлов с локальными коммитами `strata(override)`), либо идемпотентно обновляет заголовок и описание уже открытого Issue с этой меткой вместо создания дубликатов. Если новых `stable`/`rc` тегов выше `upstreamBaseTag` нет (`upToDate: true`), воркфлоу автоматически закрывает устаревший открытый Issue с меткой `strata:upstream-radar` и поясняющим комментарием.
 - **Опциональный Webhook:** если в секретах репозитория задан `STRATA_ARCHITECT_WEBHOOK_URL` (Slack / Telegram-bridge / Discord-совместимый JSON endpoint с полями `text` и `content`), воркфлоу дополнительно отправляет краткую сводку архитектору.
 
 Запустить проверку локально в любой момент можно командой:
 
 ```sh
+# Стандартная проверка (стабильные релизы + rc, без alpha/beta)
 pnpm run strata:check-upstream -- --fetch --markdown
+
+# Только финальные стабильные релизы или полный список со всеми alpha/beta
+pnpm run strata:check-upstream -- --fetch --channel stable --markdown
+pnpm run strata:check-upstream -- --fetch --channel all --markdown
 ```
 
 ---

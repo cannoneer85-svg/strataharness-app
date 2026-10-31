@@ -562,13 +562,66 @@ describe('Soft-Fork Operations CLI — check-upstream & prepare-upstream-sync', 
     runGit(forkRepo, ['add', 'packages/strata/notes.txt'])
     runGit(forkRepo, ['commit', '-m', 'feat(strata): add strata notes'])
 
-    // Before upstream advances, check-upstream reports upToDate: true.
     const upToDateReport = checkUpstreamReleases({ repoRoot: forkRepo })
     expect(upToDateReport.upToDate).toBe(true)
+    expect(upToDateReport.channel).toBe('rc')
     expect(upToDateReport.newerTags).toEqual([])
     expect(upToDateReport.latestTag).toBeNull()
 
-    // Upstream releases dsh-v0.2.2 and dsh-v0.3.0 with overlapping profile edit, upgrade-guide, and new workflow.
+    writeText(upstreamRepo, 'packages/core/agent/src/index.ts', 'export const AGENT = 1.5\n')
+    runGit(upstreamRepo, ['add', '.'])
+    runGit(upstreamRepo, ['commit', '-m', 'chore: early alpha and beta tags'])
+    runGit(upstreamRepo, ['tag', 'dsh-v0.2.2-alpha.2'])
+    runGit(upstreamRepo, ['tag', 'dsh-v0.2.2-beta.1'])
+    runGit(upstreamRepo, ['tag', 'dsh-v0.2.2-nightly.20261031'])
+    runGit(upstreamRepo, ['tag', 'dsh-v0.2.2-rc01'])
+
+    const alphaOnlyReport = checkUpstreamReleases({ repoRoot: forkRepo, remoteUrl: upstreamRepo, fetch: true })
+    expect(alphaOnlyReport.upToDate).toBe(true)
+    expect(alphaOnlyReport.channel).toBe('rc')
+    expect(alphaOnlyReport.newerTags).toEqual([])
+    expect(alphaOnlyReport.latestTag).toBeNull()
+
+    const allChannelCli = runForkOpsCli(
+      ['check-upstream', '--remote-url', upstreamRepo, '--channel', 'all', '--json'],
+      { repoRoot: forkRepo },
+    )
+    expect(allChannelCli.exitCode).toBe(0)
+    expect(JSON.parse(allChannelCli.stdout)).toMatchObject({
+      upToDate: false,
+      channel: 'all',
+      newerTags: [
+        'dsh-v0.2.2-alpha.2',
+        'dsh-v0.2.2-beta.1',
+        'dsh-v0.2.2-nightly.20261031',
+        'dsh-v0.2.2-rc01',
+      ],
+      latestTag: 'dsh-v0.2.2-rc01',
+    })
+
+    runGit(upstreamRepo, ['tag', 'dsh-v0.2.1-rc.5'])
+    const rcReport = checkUpstreamReleases({ repoRoot: forkRepo, remoteUrl: upstreamRepo, fetch: true })
+    expect(rcReport.upToDate).toBe(false)
+    expect(rcReport.channel).toBe('rc')
+    expect(rcReport.newerTags).toEqual(['dsh-v0.2.1-rc.5'])
+    expect(rcReport.latestTag).toBe('dsh-v0.2.1-rc.5')
+
+    const stableOnlyBeforeFinal = checkUpstreamReleases({
+      repoRoot: forkRepo,
+      remoteUrl: upstreamRepo,
+      channel: 'stable',
+    })
+    expect(stableOnlyBeforeFinal.upToDate).toBe(true)
+    expect(stableOnlyBeforeFinal.channel).toBe('stable')
+    expect(stableOnlyBeforeFinal.newerTags).toEqual([])
+    expect(stableOnlyBeforeFinal.latestTag).toBeNull()
+
+    const invalidChannelCli = runForkOpsCli(['check-upstream', '--local', '--channel', 'alpha'], {
+      repoRoot: forkRepo,
+    })
+    expect(invalidChannelCli.exitCode).toBe(1)
+    expect(invalidChannelCli.stderr).toMatch(/channel/i)
+
     writeText(upstreamRepo, 'packages/core/agent/src/index.ts', 'export const AGENT = 2\n')
     runGit(upstreamRepo, ['add', '.'])
     runGit(upstreamRepo, ['commit', '-m', 'feat: release 0.2.2'])
@@ -581,6 +634,22 @@ describe('Soft-Fork Operations CLI — check-upstream & prepare-upstream-sync', 
     runGit(upstreamRepo, ['add', '.'])
     runGit(upstreamRepo, ['commit', '-m', 'feat: release 0.3.0'])
     runGit(upstreamRepo, ['tag', 'dsh-v0.3.0'])
+    runGit(upstreamRepo, ['tag', 'dsh-v0.3.1-rc.1'])
+    runGit(upstreamRepo, ['tag', 'dsh-v0.3.1-rc2'])
+    runGit(upstreamRepo, ['tag', 'dsh-v0.4.0-alpha.1'])
+
+    const stableWhenBothCoexist = checkUpstreamReleases({
+      repoRoot: forkRepo,
+      remoteUrl: upstreamRepo,
+      channel: 'stable',
+      fetch: true,
+    })
+    expect(stableWhenBothCoexist).toMatchObject({
+      upToDate: false,
+      channel: 'stable',
+      newerTags: ['dsh-v0.2.2', 'dsh-v0.3.0'],
+      latestTag: 'dsh-v0.3.0',
+    })
 
     const radarJsonCli = runForkOpsCli(['check-upstream', '--remote-url', upstreamRepo, '--fetch', '--json'], {
       repoRoot: forkRepo,
@@ -589,9 +658,10 @@ describe('Soft-Fork Operations CLI — check-upstream & prepare-upstream-sync', 
     const radarReport: unknown = JSON.parse(radarJsonCli.stdout)
     expect(radarReport).toMatchObject({
       upToDate: false,
+      channel: 'rc',
       upstreamBaseTag: 'dsh-v0.2.1-rc.4',
-      newerTags: ['dsh-v0.2.2', 'dsh-v0.3.0'],
-      latestTag: 'dsh-v0.3.0',
+      newerTags: ['dsh-v0.2.1-rc.5', 'dsh-v0.2.2', 'dsh-v0.3.0', 'dsh-v0.3.1-rc.1', 'dsh-v0.3.1-rc2'],
+      latestTag: 'dsh-v0.3.1-rc2',
       impactAvailable: true,
       overlappingOverrideFiles: ['packages/boot/app-boot/src/profile.ts'],
       upgradeGuides: ['docs/upgrade-guide/v0.3.0/item/guide.md'],
@@ -600,7 +670,7 @@ describe('Soft-Fork Operations CLI — check-upstream & prepare-upstream-sync', 
 
     const radarMdCli = runForkOpsCli(['check-upstream', '--local', '--markdown'], { repoRoot: forkRepo })
     expect(radarMdCli.exitCode).toBe(0)
-    expect(radarMdCli.stdout).toContain('dsh-v0.3.0')
+    expect(radarMdCli.stdout).toContain('dsh-v0.3.1-rc2')
     expect(radarMdCli.stdout).toContain('packages/boot/app-boot/src/profile.ts')
     expect(radarMdCli.stdout).toContain('docs/upgrade-guide/v0.3.0/item/guide.md')
     expect(radarMdCli.stdout).toContain('.github/workflows/new-upstream-check.yml')
@@ -643,7 +713,6 @@ describe('Soft-Fork Operations CLI — check-upstream & prepare-upstream-sync', 
       'packages/core/agent/src/index.ts',
     ])
 
-    // Clean working tree creates sync/dsh-v0.3.0 and outputs the impact report + 5-step merge checklist.
     const cleanSyncCli = runForkOpsCli(['prepare-upstream-sync', 'dsh-v0.3.0'], { repoRoot: forkRepo })
     expect(cleanSyncCli.exitCode).toBe(0)
     expect(runGit(forkRepo, ['branch', '--show-current'])).toBe('sync/dsh-v0.3.0')
@@ -653,6 +722,15 @@ describe('Soft-Fork Operations CLI — check-upstream & prepare-upstream-sync', 
     expect(cleanSyncCli.stdout).toContain('russian-localization-parity.spec.ts')
     expect(cleanSyncCli.stdout).toContain('strata:version minor --upstream-base dsh-v0.3.0')
     expect(cleanSyncCli.stdout).toContain('test:updates:local')
+
+    runGit(forkRepo, ['checkout', 'main'])
+    const explicitBetaSync = prepareUpstreamSync({
+      repoRoot: forkRepo,
+      targetTag: 'dsh-v0.2.2-beta.1',
+      remoteUrl: upstreamRepo,
+    })
+    expect(explicitBetaSync.impactReport.channel).toBe('all')
+    expect(explicitBetaSync.impactReport.newerTags).toContain('dsh-v0.2.2-beta.1')
   })
 })
 
@@ -680,6 +758,12 @@ describe('Strata Upstream Release Radar Workflow & Real Repository Audit', () =>
     expect(parsed.on.workflow_dispatch).toMatchObject({
       inputs: {
         upstream_url: { type: 'string', required: false, default: '' },
+        channel: {
+          type: 'choice',
+          required: false,
+          default: 'rc',
+          options: ['rc', 'stable', 'all'],
+        },
         dry_run: { type: 'boolean', required: false, default: false },
       },
     })
@@ -722,14 +806,18 @@ describe('Strata Upstream Release Radar Workflow & Real Repository Audit', () =>
     )
     expect(checkoutStep?.with).toMatchObject({ 'fetch-depth': 0 })
 
-    // Single-issue deduplication via strata:upstream-radar, step summary, and optional webhook
     const combinedRuns = runScripts.join('\n')
     expect(combinedRuns).toContain('strata:check-upstream')
+    expect(combinedRuns).toContain('--channel')
     expect(combinedRuns).toContain('GITHUB_STEP_SUMMARY')
     expect(combinedRuns).toContain('strata:upstream-radar')
+    expect(combinedRuns).toContain('open_issues_raw="$(')
+    expect(combinedRuns).not.toContain('< <(')
     expect(combinedRuns).toContain('gh issue list')
     expect(combinedRuns).toContain('gh issue edit')
     expect(combinedRuns).toContain('gh issue create')
+    expect(combinedRuns).toContain('gh issue close')
+    expect(rawYaml).toContain("steps.check.outputs.channel == 'rc'")
     expect(rawYaml).toContain('STRATA_ARCHITECT_WEBHOOK_URL')
 
     // Zero references to strata-upstream-watch inside packages/ or apps/

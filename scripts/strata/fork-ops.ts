@@ -25,6 +25,17 @@ const DEFAULT_REPO_ROOT = resolve(import.meta.dirname, '../..')
 const PRODUCT_MANIFEST_FILENAME = 'strata-product.json'
 const UPSTREAM_TAG_PREFIX = 'dsh-v'
 
+/** Supported upstream release channel filters for `strata:check-upstream`. */
+export const UPSTREAM_RELEASE_CHANNELS = ['rc', 'stable', 'all'] as const
+
+/** Upstream release channel filter: `'rc'` (stable + RCs), `'stable'` (final releases only), or `'all'` (all SemVer tags). */
+export type UpstreamReleaseChannel = (typeof UPSTREAM_RELEASE_CHANNELS)[number]
+
+/** Default upstream release channel used by `strata:check-upstream` and the daily radar workflow. */
+export const DEFAULT_UPSTREAM_RELEASE_CHANNEL: UpstreamReleaseChannel = 'rc'
+
+const MAX_RENDERED_NEWER_TAGS = 30
+
 /** Validated fields from the root `strata-product.json` manifest. */
 export interface StrataProductManifest {
   /** Human-readable desktop product name. */
@@ -137,6 +148,8 @@ export interface CheckUpstreamOptions {
   readonly repoRoot?: string | undefined
   /** Optional explicit upstream Git URL or local repository path. */
   readonly remoteUrl?: string | undefined
+  /** Upstream release channel filter; defaults to `'rc'` (stable and `-rc*` tags, ignoring `alpha`/`beta`/`nightly`). */
+  readonly channel?: UpstreamReleaseChannel | undefined
   /** Fetch remote `dsh-v*` tag objects locally so `git diff` impact analysis runs. */
   readonly fetch?: boolean | undefined
   /** Inspect local Git tags only without querying a remote repository. */
@@ -153,7 +166,9 @@ export interface UpstreamImpactReport {
   readonly productVersion: string
   /** Current `upstreamBaseTag` from `strata-product.json`. */
   readonly upstreamBaseTag: string
-  /** True when no discovered `dsh-v*` tag exceeds `upstreamBaseTag`. */
+  /** Active upstream release channel filter applied during tag discovery. */
+  readonly channel: UpstreamReleaseChannel
+  /** True when no discovered `dsh-v*` tag matching `channel` exceeds `upstreamBaseTag`. */
   readonly upToDate: boolean
   /** Newer `dsh-v*` tags sorted in ascending SemVer order. */
   readonly newerTags: readonly string[]
@@ -954,7 +969,81 @@ function resolveUpstreamRemoteTarget(
   return validateUpstreamRemoteTarget(repoRoot, manifest.upstreamRepository, 'upstreamRepository')
 }
 
-function filterAndSortNewerUpstreamTags(candidateTags: Iterable<string>, upstreamBaseTag: string): string[] {
+function assertNever(value: never): never {
+  throw new Error(`fork-ops: unhandled discriminant ${JSON.stringify(value)}`)
+}
+
+function isUpstreamReleaseChannel(value: string): value is UpstreamReleaseChannel {
+  return (UPSTREAM_RELEASE_CHANNELS as readonly string[]).includes(value)
+}
+
+function parseUpstreamReleaseChannel(rawChannel: string | undefined): UpstreamReleaseChannel | undefined {
+  if (rawChannel === undefined) {
+    return undefined
+  }
+  const trimmed = rawChannel.trim()
+  if (!isUpstreamReleaseChannel(trimmed)) {
+    throw new Error(
+      `fork-ops: unsupported --channel ${JSON.stringify(rawChannel)}; expected one of ${UPSTREAM_RELEASE_CHANNELS.join(', ')}`,
+    )
+  }
+  return trimmed
+}
+
+function describeUpstreamReleaseChannel(channel: UpstreamReleaseChannel): string {
+  switch (channel) {
+    case 'rc':
+      return 'stable and rc tags; alpha/beta/nightly ignored'
+    case 'stable':
+      return 'stable tags only; all prereleases ignored'
+    case 'all':
+      return 'all upstream SemVer tags including prereleases'
+    default:
+      return assertNever(channel)
+  }
+}
+
+function matchesUpstreamReleaseChannel(parsed: semver.SemVer, channel: UpstreamReleaseChannel): boolean {
+  switch (channel) {
+    case 'all':
+      return true
+    case 'stable':
+      return parsed.prerelease.length === 0
+    case 'rc': {
+      if (parsed.prerelease.length === 0) return true
+      const firstIdentifier = String(parsed.prerelease[0]).toLowerCase()
+      return firstIdentifier === 'rc' || /^rc[1-9]\d*$/u.test(firstIdentifier)
+    }
+    default:
+      return assertNever(channel)
+  }
+}
+
+interface ResolvedCheckUpstreamSpec {
+  readonly repoRoot: string
+  readonly remoteUrl: string | undefined
+  readonly channel: UpstreamReleaseChannel
+  readonly fetch: boolean
+  readonly local: boolean
+  readonly allowDirty: boolean
+}
+
+function resolveCheckUpstreamSpec(options: CheckUpstreamOptions): ResolvedCheckUpstreamSpec {
+  return {
+    repoRoot: options.repoRoot ?? DEFAULT_REPO_ROOT,
+    remoteUrl: options.remoteUrl,
+    channel: options.channel ?? DEFAULT_UPSTREAM_RELEASE_CHANNEL,
+    fetch: options.fetch === true,
+    local: options.local === true,
+    allowDirty: options.allowDirty === true,
+  }
+}
+
+function filterAndSortNewerUpstreamTags(
+  candidateTags: Iterable<string>,
+  upstreamBaseTag: string,
+  channel: UpstreamReleaseChannel,
+): string[] {
   const baseVersion = validateCanonicalSemVer(
     upstreamBaseTag.slice(UPSTREAM_TAG_PREFIX.length),
     'upstreamBaseTag',
@@ -966,6 +1055,7 @@ function filterAndSortNewerUpstreamTags(candidateTags: Iterable<string>, upstrea
     const suffix = tag.slice(UPSTREAM_TAG_PREFIX.length)
     const parsed = semver.parse(suffix, { loose: false })
     if (parsed === null || parsed.build.length > 0 || parsed.version !== suffix) continue
+    if (!matchesUpstreamReleaseChannel(parsed, channel)) continue
     if (semver.gt(parsed.version, baseVersion)) {
       newerVersions.set(parsed.version, tag)
     }
@@ -996,11 +1086,21 @@ function renderMarkdownBullets(items: readonly string[]): string {
   return items.map(item => `- \`${item}\``).join('\n')
 }
 
+function formatRenderedNewerTags(newerTags: readonly string[]): string {
+  if (newerTags.length <= MAX_RENDERED_NEWER_TAGS) {
+    return newerTags.map(tag => `\`${tag}\``).join(', ')
+  }
+  const omittedCount = newerTags.length - MAX_RENDERED_NEWER_TAGS
+  const recentTags = newerTags.slice(-MAX_RENDERED_NEWER_TAGS).map(tag => `\`${tag}\``).join(', ')
+  return `_(+${String(omittedCount)} older omitted)_, ${recentTags}`
+}
+
 function buildUpstreamImpactReport(
   repoRoot: string,
   manifest: StrataProductManifest,
   newerTags: readonly string[],
   targetTag: string | null,
+  channel: UpstreamReleaseChannel,
 ): UpstreamImpactReport {
   const upToDate = targetTag === null
   const overrideFiles = collectOverrideTouchedFiles(repoRoot, manifest.upstreamBaseTag)
@@ -1056,12 +1156,13 @@ function buildUpstreamImpactReport(
     `## Upstream Release Radar — ${manifest.productName} ${manifest.productVersion}`,
     '',
     `- **Current upstream base tag:** \`${manifest.upstreamBaseTag}\``,
+    `- **Release channel filter:** \`${channel}\` (${describeUpstreamReleaseChannel(channel)})`,
     `- **Status:** ${upToDate ? 'Up to date' : `Update available (\`${targetTag}\`)`}`,
   ]
 
   if (targetTag !== null) {
     markdownLines.push(
-      `- **Newer upstream tags (${String(newerTags.length)}):** ${newerTags.map(tag => `\`${tag}\``).join(', ')}`,
+      `- **Newer upstream tags (${String(newerTags.length)}):** ${formatRenderedNewerTags(newerTags)}`,
       `- **Git diff impact analysis:** ${impactAvailable ? 'available' : 'unavailable (run with `--fetch` to inspect Git objects)'}`,
       '',
       `### Overlapping \`strata(override)\` files (${String(overlappingOverrideFiles.length)})`,
@@ -1088,6 +1189,7 @@ function buildUpstreamImpactReport(
     productName: manifest.productName,
     productVersion: manifest.productVersion,
     upstreamBaseTag: manifest.upstreamBaseTag,
+    channel,
     upToDate,
     newerTags: [...newerTags],
     latestTag: targetTag,
@@ -1101,16 +1203,16 @@ function buildUpstreamImpactReport(
 }
 
 /**
- * Compare `upstreamBaseTag` against available `dsh-v*` tags and compute the merge impact report.
- * @param options - Remote/local tag discovery options, fetch toggle, and repository root.
+ * Compare `upstreamBaseTag` against available `dsh-v*` tags matching `channel` and compute the merge impact report.
+ * @param options - Remote/local tag discovery options, release channel filter, fetch toggle, and repository root.
  * @returns Structured upstream release radar and impact report.
  */
 export function checkUpstreamReleases(options: CheckUpstreamOptions = {}): UpstreamImpactReport {
-  const repoRoot = options.repoRoot ?? DEFAULT_REPO_ROOT
-  const manifest = readProductManifest(repoRoot)
+  const spec = resolveCheckUpstreamSpec(options)
+  const manifest = readProductManifest(spec.repoRoot)
 
-  if (options.allowDirty !== true) {
-    const porcelain = runGitOrThrow(repoRoot, ['status', '--porcelain'], 'check Git working tree cleanliness')
+  if (!spec.allowDirty) {
+    const porcelain = runGitOrThrow(spec.repoRoot, ['status', '--porcelain'], 'check Git working tree cleanliness')
     if (porcelain.trim() !== '') {
       throw new Error(
         'fork-ops: check-upstream blocked because the Git working tree has dirty/uncommitted changes; '
@@ -1121,13 +1223,13 @@ export function checkUpstreamReleases(options: CheckUpstreamOptions = {}): Upstr
 
   let candidateTags: string[]
   let remoteTarget: string | undefined
-  if (options.local === true) {
-    const localOut = runGitOrThrow(repoRoot, ['tag', '--list', `${UPSTREAM_TAG_PREFIX}*`], 'list local dsh-v* tags')
+  if (spec.local) {
+    const localOut = runGitOrThrow(spec.repoRoot, ['tag', '--list', `${UPSTREAM_TAG_PREFIX}*`], 'list local dsh-v* tags')
     candidateTags = localOut === '' ? [] : localOut.split('\n')
   } else {
-    remoteTarget = resolveUpstreamRemoteTarget(repoRoot, manifest, options.remoteUrl)
+    remoteTarget = resolveUpstreamRemoteTarget(spec.repoRoot, manifest, spec.remoteUrl)
     const lsOut = runGitOrThrow(
-      repoRoot,
+      spec.repoRoot,
       ['ls-remote', '--tags', '--refs', remoteTarget, `refs/tags/${UPSTREAM_TAG_PREFIX}*`],
       `query remote tags from ${remoteTarget}`,
     )
@@ -1140,22 +1242,24 @@ export function checkUpstreamReleases(options: CheckUpstreamOptions = {}): Upstr
         .map(ref => ref.slice('refs/tags/'.length))
   }
 
-  const newerTags = filterAndSortNewerUpstreamTags(candidateTags, manifest.upstreamBaseTag)
+  const newerTags = filterAndSortNewerUpstreamTags(candidateTags, manifest.upstreamBaseTag, spec.channel)
   const latestTag = newerTags.at(-1) ?? null
 
-  if (options.fetch === true && options.local !== true && remoteTarget !== undefined && latestTag !== null) {
-    const refspecs = newerTags.map(tag => `refs/tags/${tag}:refs/tags/${tag}`)
-    if (!gitRefExists(repoRoot, `${manifest.upstreamBaseTag}^{commit}`)) {
-      refspecs.push(`refs/tags/${manifest.upstreamBaseTag}:refs/tags/${manifest.upstreamBaseTag}`)
-    }
-    runGitOrThrow(
-      repoRoot,
-      ['fetch', '--no-recurse-submodules', '--force', remoteTarget, ...refspecs],
-      `fetch newer dsh-v* tags from ${remoteTarget}`,
+  if (spec.fetch && !spec.local && remoteTarget !== undefined && latestTag !== null) {
+    const missingRequiredTags = [manifest.upstreamBaseTag, latestTag].filter(
+      (tag, index, list) => list.indexOf(tag) === index && !gitRefExists(spec.repoRoot, `${tag}^{commit}`),
     )
+    if (missingRequiredTags.length > 0) {
+      const refspecs = missingRequiredTags.map(tag => `refs/tags/${tag}:refs/tags/${tag}`)
+      runGitOrThrow(
+        spec.repoRoot,
+        ['fetch', '--no-recurse-submodules', remoteTarget, ...refspecs],
+        `fetch upstream tag(s) ${missingRequiredTags.join(', ')} from ${remoteTarget}`,
+      )
+    }
   }
 
-  return buildUpstreamImpactReport(repoRoot, manifest, newerTags, latestTag)
+  return buildUpstreamImpactReport(spec.repoRoot, manifest, newerTags, latestTag, spec.channel)
 }
 
 function renderFiveStepChecklist(targetTag: string, impactMarkdown: string): string {
@@ -1216,13 +1320,18 @@ export function prepareUpstreamSync(options: PrepareUpstreamSyncOptions): Prepar
     ? [...localTagsOut.stdout.split('\n'), targetTag]
     : [targetTag]
   const targetSemver = targetTag.slice(UPSTREAM_TAG_PREFIX.length)
-  const newerTagsUpToTarget = filterAndSortNewerUpstreamTags(candidateTags, manifest.upstreamBaseTag)
+  const parsedTarget = semver.parse(targetSemver, { loose: false })
+  const syncChannel: UpstreamReleaseChannel =
+    parsedTarget !== null && !matchesUpstreamReleaseChannel(parsedTarget, DEFAULT_UPSTREAM_RELEASE_CHANNEL)
+      ? 'all'
+      : DEFAULT_UPSTREAM_RELEASE_CHANNEL
+  const newerTagsUpToTarget = filterAndSortNewerUpstreamTags(candidateTags, manifest.upstreamBaseTag, syncChannel)
     .filter(tag => semver.lte(tag.slice(UPSTREAM_TAG_PREFIX.length), targetSemver))
   const effectiveNewerTags = newerTagsUpToTarget.includes(targetTag)
     ? newerTagsUpToTarget
     : [...newerTagsUpToTarget, targetTag]
 
-  const impactReport = buildUpstreamImpactReport(repoRoot, manifest, effectiveNewerTags, targetTag)
+  const impactReport = buildUpstreamImpactReport(repoRoot, manifest, effectiveNewerTags, targetTag, syncChannel)
   const checklistMarkdown = renderFiveStepChecklist(targetTag, impactReport.markdownSummary)
 
   return {
@@ -1344,6 +1453,7 @@ export function runForkOpsCli(argv: readonly string[], options: ForkOpsCliOption
           args: restArgs,
           options: {
             'remote-url': { type: 'string' },
+            channel: { type: 'string' },
             fetch: { type: 'boolean', default: false },
             local: { type: 'boolean', default: false },
             'allow-dirty': { type: 'boolean', default: false },
@@ -1356,6 +1466,7 @@ export function runForkOpsCli(argv: readonly string[], options: ForkOpsCliOption
         const report = checkUpstreamReleases({
           repoRoot,
           remoteUrl: parsed.values['remote-url'],
+          channel: parseUpstreamReleaseChannel(parsed.values.channel),
           fetch: parsed.values.fetch,
           local: parsed.values.local,
           allowDirty: parsed.values['allow-dirty'],
