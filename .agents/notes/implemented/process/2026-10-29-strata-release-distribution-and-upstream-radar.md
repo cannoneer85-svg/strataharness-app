@@ -8,7 +8,7 @@ English | [中文](2026-10-29-strata-release-distribution-and-upstream-radar.zh.
 
 Upstream DeepSeek Harness packages desktop targets on internal runners, signs Windows binaries exclusively through a physical SafeNet hardware token in `apps/desktop/scripts/windows-sign.mjs`, emits only `.dmg` (without `.zip`) for unsigned macOS builds, and publishes installers and `electron-updater` feeds to Tencent COS (`dsh-desk/<target>/` under `download.deepseek.com`).
 
-StrataHarness Desktop requires a self-contained distribution pipeline on standard GitHub-hosted runners (`windows-2022` and Apple Silicon `macos-15` with Rosetta 2 for `mac-x64`) with zero dependency on Tencent COS or `*.deepseek.com`, first-class `unsigned` installers out of the box before paid signing certificates are provisioned, standard cloud-CI certificate support once secrets are added, and proactive visibility for the system architect when upstream DeepSeek Harness publishes new `dsh-v*` tags without exposing upstream telemetry or notifications inside the end-user desktop app.
+StrataHarness Desktop requires a self-contained distribution pipeline on standard GitHub-hosted runners (`windows-2022`, Apple Silicon `macos-15` for `mac-arm64`, and native Intel `macos-15-intel` for `mac-x64`) with zero dependency on Tencent COS or `*.deepseek.com`, first-class `unsigned` installers out of the box before paid signing certificates are provisioned, standard cloud-CI certificate support once secrets are added, and proactive visibility for the system architect when upstream DeepSeek Harness publishes new `dsh-v*` tags without exposing upstream telemetry or notifications inside the end-user desktop app.
 
 ## Decision
 
@@ -25,6 +25,8 @@ StrataHarness ships a dual-surface distribution pipeline driven by modular GitHu
 **Publish partial production releases when one platform runner fails.** Publishing a production `strata-v*` release missing `win-x64` or `mac-arm64` leaves users on broken download links and splits one product version across inconsistent release states. Retaining completed artifacts in Actions while gating publication on all three targets preserves build work without exposing incomplete releases.
 
 **Check for upstream `dsh-v*` releases inside the StrataHarness Desktop client.** End users run StrataHarness as an autonomous product with zero background calls to upstream infrastructure; upstream synchronization requires code review, `strata(override)` conflict assessment, and repackaging by the system architect, making GitHub Actions and `fork-ops.ts` the appropriate execution boundary.
+
+**Build and smoke-test `mac-x64` under Rosetta 2 on Apple Silicon `macos-15` runners.** While local packaging supports cross-architecture `mac-x64` builds on Apple Silicon, cold-starting bundled `x86_64` LibreOffice during `smokeDesktopRuntime` `docx` conversion on 3-vCPU `macos-15` runners exceeds the 60-second `OfficeToPdf` timeout under Rosetta 2 JIT translation. Routing `mac-x64` to native `macos-15-intel` with an upfront `uname -m` and `sysctl.proc_translated` guard runs packaging and runtime smoke tests natively without inflating application timeouts.
 
 ## Consequences
 

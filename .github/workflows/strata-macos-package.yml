@@ -111,7 +111,7 @@ env:
 jobs:
   package:
     name: Package macOS (${{ matrix.target }})
-    runs-on: macos-15
+    runs-on: ${{ matrix.target == 'mac-x64' && 'macos-15-intel' || 'macos-15' }}
     timeout-minutes: 120
     permissions:
       contents: read
@@ -134,14 +134,29 @@ jobs:
               ;;
           esac
 
-      - name: Ensure Rosetta 2 is available for mac-x64 cross-architecture packaging
-        if: matrix.target == 'mac-x64'
+      - name: Verify native runner architecture matches requested macOS target
+        env:
+          MATRIX_TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          if ! /usr/bin/pgrep -q oahd; then
-            sudo softwareupdate --install-rosetta --agree-to-license
+          host_arch="$(/usr/bin/uname -m)"
+          translated="$(/usr/sbin/sysctl -in sysctl.proc_translated 2>/dev/null || printf '0')"
+          case "$MATRIX_TARGET" in
+            mac-arm64) expected_arch="arm64" ;;
+            mac-x64) expected_arch="x86_64" ;;
+            *)
+              echo "Unsupported MATRIX_TARGET: $MATRIX_TARGET" >&2
+              exit 1
+              ;;
+          esac
+          if [[ "$translated" == "1" ]]; then
+            echo "Rosetta-translated runner process detected for $MATRIX_TARGET; native $expected_arch execution is required" >&2
+            exit 1
           fi
-          arch -x86_64 /usr/bin/uname -m
+          if [[ "$host_arch" != "$expected_arch" ]]; then
+            echo "Runner architecture mismatch for $MATRIX_TARGET: expected $expected_arch, got $host_arch" >&2
+            exit 1
+          fi
 
       - name: Checkout repository and methodology submodule
         uses: actions/checkout@v7.0.1
@@ -186,7 +201,6 @@ jobs:
           key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-strata-mac-${{ matrix.target }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-strata-mac-${{ matrix.target }}-pnpm-
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-strata-mac-
 
       - name: Cache desktop runtime downloads and Electron archives
         uses: actions/cache@v6.1.0

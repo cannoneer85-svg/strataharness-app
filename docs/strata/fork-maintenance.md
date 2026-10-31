@@ -175,7 +175,7 @@ pnpm run strata:status
 Релизный конвейер состоит из трёх модульных воркфлоу в `.github/workflows/`:
 
 1. [`.github/workflows/strata-windows-package.yml`](../../.github/workflows/strata-windows-package.yml) — сборка `win-x64` NSIS `.exe` на раннере `windows-2022` (с кэшированием `pnpm`, `apps/desktop/.desktop-build/downloads` и Electron, приоритетом `System32\tar.exe`, проверкой `check:package` и встроенным smoke-тестом упакованного `dsh`).
-2. [`.github/workflows/strata-macos-package.yml`](../../.github/workflows/strata-macos-package.yml) — матричная сборка `mac-arm64` и `mac-x64` (`fail-fast: false`) на раннере `macos-15` (с автоматической установкой Rosetta 2 для `mac-x64` и обязательной генерацией пары `.dmg` + `.zip` для каждой архитектуры как в `signed`, так и в `unsigned` режиме).
+2. [`.github/workflows/strata-macos-package.yml`](../../.github/workflows/strata-macos-package.yml) — матричная сборка `mac-arm64` и `mac-x64` (`fail-fast: false`) на нативных раннерах `macos-15` (Apple Silicon для `mac-arm64`) и `macos-15-intel` (Intel `x86_64` для `mac-x64`) с ранней `fail-fast` проверкой нативной архитектуры (`uname -m` + `sysctl.proc_translated`), архитектурно-изолированным кэшем `pnpm` и обязательной генерацией пары `.dmg` + `.zip` для каждой архитектуры как в `signed`, так и в `unsigned` режиме.
 3. [`.github/workflows/strata-release.yml`](../../.github/workflows/strata-release.yml) — оркестратор атомарного релиза по пушу тега `strata-v*` или ручному `workflow_dispatch`.
 
 ### Гибридные релизные заметки (`Release Highlights` + `What's Changed`) и предпросмотр `strata:changelog`

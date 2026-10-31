@@ -1,20 +1,20 @@
-> Копия архивного handoff: [2026-10-31-upstream-radar-channel-filter.md](2026-10-31-upstream-radar-channel-filter.md)
+> Копия архивного handoff: [2026-10-31-fix-macos-x64-release.md](2026-10-31-fix-macos-x64-release.md)
 
-# Handoff: Фильтрация релизных каналов в радаре апстрима (`upstream-radar-channel-filter`)
+# Handoff: Нативная сборка `mac-x64` на `macos-15-intel` в релизном пайплайне (`fix-macos-x64-release`)
 
 ## Состояние
 
-- **Цель:** Исключить ранние нестабильные пререлизы (`alpha`, `beta`, `nightly` и др.) из ежедневного обхода `Strata Upstream Release Radar` (`strata:check-upstream` и [strata-upstream-watch.yml](../../.github/workflows/strata-upstream-watch.yml)), оставив по умолчанию подсветку только финальных стабильных релизов (`dsh-vX.Y.Z`) и релиз-кандидатов (`dsh-vX.Y.Z-rc`, `dsh-vX.Y.Z-rc.N`, `dsh-vX.Y.Z-rcN`).
+- **Цель:** Устранить падение матричной сборки `Package macOS (mac-x64)` на 60-секундном таймауте холодного старта `x86_64` `LibreOffice` в `smokeDesktopRuntime` (`docx → pdf`) под эмуляцией Rosetta 2 на 3-ядерном ARM64-раннере `macos-15`, сохранив трёхплатформенную атомарность боевых релизов (`win-x64`, `mac-arm64`, `mac-x64`).
 - **Достигнутый этап:** Этап 6 — Закрытие задачи (`/close-task`); маршрут `Development` / `Minor` (этапы `1 → 4 (In-Place) → 5 → 6`) и трёхосевое ревью (`/code-review`: `Standards`, `Spec`, `Adversary`) успешно завершены.
 - **Что сделано:**
-  - В [fork-ops.ts](../../scripts/strata/fork-ops.ts) добавлен типизированный фильтр канала `UpstreamReleaseChannel = 'rc' | 'stable' | 'all'` (`DEFAULT_UPSTREAM_RELEASE_CHANNEL = 'rc'`), опция `CheckUpstreamOptions.channel`, поле `UpstreamImpactReport.channel`, строка `Release channel filter` в Markdown-отчёте и CLI-флаг `--channel <rc|stable|all>` для `strata:check-upstream`.
-  - В режиме `rc` (по умолчанию) допускаются только стабильные версии без суффикса и валидные SemVer релиз-кандидаты (`rc`, `rc.<N>`, `rc<N>` без неканонических ведущих нулей вроде `rc01`), а `latestTag` выбирается как максимальная по `semver.compare` версия среди всех допущенных `stable` и `rc` тегов выше `upstreamBaseTag`; `--fetch` оптимизирован на подтягивание только отсутствующих локально `upstreamBaseTag` и `latestTag` без `--force`, а отображение `newerTags` в Markdown ограничено последними `30` тегами.
-  - В [`prepareUpstreamSync`](../../scripts/strata/fork-ops.ts) канал отчёта влияния вычисляется явно по целевому тегу (`'all'` при явной ручной синхронизации с не-RC пререлизом, иначе `'rc'`).
-  - В [strata-upstream-watch.yml](../../.github/workflows/strata-upstream-watch.yml) добавлен входной параметр `workflow_dispatch.inputs.channel` (`choice`: `rc` по умолчанию, `stable`, `all`), устранено проглатывание ошибок `gh issue list` под `set -euo pipefail`, добавлено автоматическое закрытие открытого GitHub Issue `strata:upstream-radar` с поясняющим комментарием при `up_to_date == 'true'`, а мутация GitHub Issues и отправка `STRATA_ARCHITECT_WEBHOOK_URL` ограничены каноническим каналом `rc` (`dry_run: false`).
-  - Расширены поведенческие тесты в [fork-ops.spec.ts](../../scripts/strata/fork-ops.spec.ts) и обновлён раздел `3` эксплуатационного ранбука [fork-maintenance.md](../strata/fork-maintenance.md).
+  - В [strata-macos-package.yml](../../.github/workflows/strata-macos-package.yml) выбор раннера переведён на `runs-on: ${{ matrix.target == 'mac-x64' && 'macos-15-intel' || 'macos-15' }}`: `mac-arm64` собирается на Apple Silicon `macos-15`, а `mac-x64` собирается и проходит smoke-тест упакованного приложения нативно на Intel `macos-15-intel` без JIT-трансляции Rosetta 2.
+  - В [strata-macos-package.yml](../../.github/workflows/strata-macos-package.yml) шаг установки Rosetta 2 заменён на раннюю `fail-fast` проверку нативной архитектуры `Verify native runner architecture matches requested macOS target`: до `actions/checkout` сверяются `/usr/bin/uname -m` (`arm64` для `mac-arm64`, `x86_64` для `mac-x64`) и `/usr/sbin/sysctl -in sysctl.proc_translated` (отказ `exit 1`, если процесс раннера запущен под трансляцией Rosetta 2).
+  - В шаге `Cache pnpm store` ([strata-macos-package.yml](../../.github/workflows/strata-macos-package.yml)) удалён архитектурно-нейтральный fallback-префикс из `restore-keys`, чтобы кэш `pnpm` был строго изолирован по `${{ matrix.target }}` наравне с кэшем `strata-desktop-runtime`.
+  - Расширены контрактные тесты в [strata-workflows.spec.ts](../../scripts/strata/strata-workflows.spec.ts) (проверки `macos-15-intel` / `macos-15`, отсутствия `--install-rosetta`, проверок `uname -m` и `sysctl.proc_translated`, а также изоляции `key` и `restore-keys` обоих шагов `actions/cache`).
+  - Синхронизированы эксплуатационный ранбук [fork-maintenance.md](../strata/fork-maintenance.md) и двуязычная архитектурная заметка [2026-10-29-strata-release-distribution-and-upstream-radar.md](../../.agents/notes/implemented/process/2026-10-29-strata-release-distribution-and-upstream-radar.md) / [2026-10-29-strata-release-distribution-and-upstream-radar.zh.md](../../.agents/notes/implemented/process/2026-10-29-strata-release-distribution-and-upstream-radar.zh.md) (включая обоснование отказа от Rosetta 2 в CI в разделе `Alternatives considered` и обновлённый хеш `.i18n.yaml`).
 - **Важные эксплуатационные нюансы (Gotchas):**
-  - Ручной запуск `Strata Upstream Release Radar` кнопкой `Run workflow` в GitHub Actions подхватит новый фильтр `rc` и обновит открытый Issue радара (с `dsh-v0.2.2-alpha.2` на `dsh-v0.2.1-rc.5`) только после отправки этого коммита в `origin/main` (`git push origin main`).
-  - В параллельно прошедшем CI-прогоне релиза тега `strata-v1.0.0` ([strata-release.yml](../../.github/workflows/strata-release.yml)) сборки `win-x64` и `mac-arm64` завершились успешно (готовые установщики сохранены в `Artifacts` прогона), но матричный таргет `mac-x64` на ARM64-раннере `macos-15` упал на smoke-тесте [smoke-runtime.ts](../../apps/desktop/scripts/smoke-runtime.ts) из-за 60-секундного таймаута холодного старта `x86_64` LibreOffice под эмуляцией Rosetta 2 ([strata-macos-package.yml](../../.github/workflows/strata-macos-package.yml)).
+  - В локальной ветке `main` теперь находятся два неотправленных коммита поверх `origin/main`: фильтр каналов `rc` для радара апстрима (`upstream-radar-channel-filter`) и перевод `mac-x64` на `macos-15-intel` (`fix-macos-x64-release`).
+  - После `git push origin main` пересоздавать или двигать тег `strata-v1.0.0` не требуется: ручной запуск `Strata Atomic Desktop Release` ([strata-release.yml](../../.github/workflows/strata-release.yml)) кнопкой `Run workflow` на ветке `main` (`signing_mode: auto`, `targets: all`, `draft: false`, `prerelease: false`) использует исправленный пайплайн из `main`, автоматически определяет `releaseTag = strata-v1.0.0` из [strata-product.json](../../strata-product.json) (`"productVersion": "1.0.0"` в [`runReleasePreflight`](../../scripts/strata/release-helper.ts)) и публикует боевой GitHub Release `StrataHarness v1.0.0` на тег `strata-v1.0.0` после успеха всех трёх платформ (`win-x64`, `mac-arm64`, `mac-x64`).
 
 ## Открытые тикеты
 
@@ -22,12 +22,14 @@ none
 
 ## Следующий шаг
 
-1. Отправить локальный коммит фильтра радара в удалённый репозиторий (`git push origin main`), после чего при необходимости запустить `Strata Upstream Release Radar` через `Run workflow` в GitHub Actions.
-2. Следующей отдельной задачей (через **Шаг 0** по корневому [AGENTS.md](../../AGENTS.md)) устранить таймаут `mac-x64` в [strata-macos-package.yml](../../.github/workflows/strata-macos-package.yml) — переключив матричный `mac-x64` на нативный Intel-раннер `macos-15-intel` либо оставив целевыми платформами релиза `win-x64` и `mac-arm64` — и завершить публикацию GitHub Release.
+1. Отправить локальные коммиты ветки `main` в удалённый репозиторий: `git push origin main`.
+2. Во вкладке **Actions** на GitHub нажать **Run workflow** (ветка `main`) для:
+   - **Strata Atomic Desktop Release** (`signing_mode: auto`, `targets: all`, `draft: false`, `prerelease: false`) — чтобы собрать все три платформы с нативным `macos-15-intel` для `mac-x64` и опубликовать релиз `StrataHarness v1.0.0`;
+   - **Strata Upstream Release Radar** (`channel: rc`, `dry_run: false`) — чтобы обновить открытый Issue радара с отфильтрованным релиз-кандидатом `dsh-v0.2.1-rc.5` вместо `dsh-v0.2.2-alpha.2`.
 
 ## Рекомендуемые скиллы
 
-- Этап 1 (Интервью разработки): `.agents/skills/grill-with-docs/SKILL.md`
 - Ручной мастер подготовки и выпуска релиза продукта (`/strata-release`): `.agents/skills/strata-release/SKILL.md`
 - Выбор минимального набора локальных проверок перед пушем: `.agents/skills/dsh-pre-push-checks/SKILL.md`
+- Этап 1 (Интервью разработки): `.agents/skills/grill-with-docs/SKILL.md`
 - Роутер скиллов и маршрутов: `.agents/skills/ask/SKILL.md`

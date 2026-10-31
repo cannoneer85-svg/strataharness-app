@@ -8,7 +8,7 @@ Status: implemented
 
 上游 DeepSeek Harness 在内部运行器上打包桌面目标平台，在 `apps/desktop/scripts/windows-sign.mjs` 中仅支持通过物理 SafeNet 硬件令牌对 Windows 二进制文件签名，在未签名 macOS 构建中仅输出 `.dmg`（不含 `.zip`），并将安装包与 `electron-updater` 更新源发布至腾讯云 COS（`download.deepseek.com` 下的 `dsh-desk/<target>/`）。
 
-StrataHarness Desktop 需要在标准 GitHub 托管运行器（`windows-2022` 以及通过 Rosetta 2 兼顾 `mac-x64` 的 Apple Silicon `macos-15`）上提供完全自治的分发流水线，彻底消除对腾讯云 COS 或 `*.deepseek.com` 的依赖，在配置付费代码签名证书之前开箱即用地输出 `unsigned` 安装包，在添加密钥后无缝启用标准云端 CI 证书签名，并在上游 DeepSeek Harness 发布新 `dsh-v*` 标签时为系统架构师提供主动感知能力，同时绝不在终端用户桌面客户端内暴露任何上游遥测或更新提示。
+StrataHarness Desktop 需要在标准 GitHub 托管运行器（`windows-2022`、用于 `mac-arm64` 的 Apple Silicon `macos-15` 以及用于 `mac-x64` 的原生 Intel `macos-15-intel`）上提供完全自治的分发流水线，彻底消除对腾讯云 COS 或 `*.deepseek.com` 的依赖，在配置付费代码签名证书之前开箱即用地输出 `unsigned` 安装包，在添加密钥后无缝启用标准云端 CI 证书签名，并在上游 DeepSeek Harness 发布新 `dsh-v*` 标签时为系统架构师提供主动感知能力，同时绝不在终端用户桌面客户端内暴露任何上游遥测或更新提示。
 
 ## 决策
 
@@ -25,6 +25,8 @@ StrataHarness 提供由模块化 GitHub Actions 工作流（`strata-windows-pack
 **当某个平台运行器失败时允许发布不完整的正式版本。** 发布缺失 `win-x64` 或 `mac-arm64` 的正式 `strata-v*` 版本会导致用户遇到损坏的下载链接，并将同一产品版本号割裂为不一致的发布状态。在 Actions 中保留已成功平台的构建产物、同时对正式发布实施三平台原子门禁，既能保住已完成的构建成果，又能避免暴露残缺版本。
 
 **在 StrataHarness Desktop 客户端内部检查上游 `dsh-v*` 新版本。** 终端用户使用的是零上游后台请求的独立产品；上游同步需要系统架构师进行代码评审、`strata(override)` 冲突评估与重新打包，因此 GitHub Actions 与 `fork-ops.ts` 才是恰当的执行边界。
+
+**在 Apple Silicon `macos-15` 运行器上通过 Rosetta 2 构建并对 `mac-x64` 执行冒烟测试。** 尽管本地打包支持在 Apple Silicon 上交叉构建 `mac-x64`，但在 3 核 `macos-15` 运行器上通过 Rosetta 2 即时转译冷启动内置 `x86_64` LibreOffice 执行 `smokeDesktopRuntime` 的 `docx` 转换时，会超出 `OfficeToPdf` 的 60 秒超时上限。将 `mac-x64` 路由至原生 `macos-15-intel` 并在前置检查中同时校验 `uname -m` 与 `sysctl.proc_translated`，即可在不放宽应用运行时超时阈值的前提下原生完成打包与冒烟验证。
 
 ## 后果
 

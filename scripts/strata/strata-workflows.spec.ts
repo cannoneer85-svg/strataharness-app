@@ -520,7 +520,7 @@ describe('StrataHarness Windows and macOS reusable packaging workflows', () => {
     expect(cleanupStep).toBeDefined()
   })
 
-  it('enforces macOS matrix (fail-fast: false), Rosetta 2 on mac-x64, RUNNER_TEMP .p12/.p8 cleanup, and .dmg+.zip staging', () => {
+  it('enforces macOS native runners (macos-15 / macos-15-intel), uname -m guard, target-isolated cache keys, and .dmg+.zip staging', () => {
     const { doc } = loadWorkflowYaml('strata-macos-package.yml')
 
     expect(doc.permissions).toEqual({ contents: 'read' })
@@ -541,16 +541,49 @@ describe('StrataHarness Windows and macOS reusable packaging workflows', () => {
 
     const job = doc.jobs.package
     expect(job).toBeDefined()
-    expect(job?.['runs-on']).toBe('macos-15')
+    expect(job?.['runs-on']).toBe("${{ matrix.target == 'mac-x64' && 'macos-15-intel' || 'macos-15' }}")
     expect(job?.['timeout-minutes']).toBe(120)
     expect(job?.strategy?.['fail-fast']).toBe(false)
     expect(job?.permissions).toEqual({ contents: 'read' })
 
     const steps = job?.steps ?? []
-    const rosettaStep = steps.find(step => (step.run ?? '').includes('softwareupdate --install-rosetta --agree-to-license'))
-    expect(rosettaStep).toBeDefined()
-    expect(rosettaStep?.if).toContain("matrix.target == 'mac-x64'")
-    expect(rosettaStep?.run).toContain('arch -x86_64')
+    const rosettaStep = steps.find(step => (step.run ?? '').includes('--install-rosetta'))
+    expect(rosettaStep).toBeUndefined()
+
+    const archGuardStep = steps.find(step => (step.run ?? '').includes('/usr/bin/uname -m'))
+    expect(archGuardStep).toBeDefined()
+    expect(archGuardStep?.env?.MATRIX_TARGET).toBe('${{ matrix.target }}')
+    expect(archGuardStep?.run).toContain('sysctl.proc_translated')
+    expect(archGuardStep?.run).toContain('Rosetta-translated runner process detected')
+    expect(archGuardStep?.run).toContain('mac-arm64) expected_arch="arm64"')
+    expect(archGuardStep?.run).toContain('mac-x64) expected_arch="x86_64"')
+    expect(archGuardStep?.run).toContain('Runner architecture mismatch')
+
+    const pnpmCacheStep = steps.find(
+      step => step.uses === 'actions/cache@v6.1.0' && String(step.with?.key ?? '').includes('-pnpm-'),
+    )
+    expect(pnpmCacheStep).toBeDefined()
+    expect(String(pnpmCacheStep?.with?.key)).toContain('${{ matrix.target }}')
+    const pnpmRestoreKeys = String(pnpmCacheStep?.with?.['restore-keys'] ?? '')
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line !== '')
+    expect(pnpmRestoreKeys).toEqual([
+      '${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-strata-mac-${{ matrix.target }}-pnpm-',
+    ])
+
+    const runtimeCacheStep = steps.find(
+      step =>
+        step.uses === 'actions/cache@v6.1.0'
+        && String(step.with?.key ?? '').includes('-strata-desktop-runtime-'),
+    )
+    expect(runtimeCacheStep).toBeDefined()
+    expect(String(runtimeCacheStep?.with?.key)).toContain('${{ matrix.target }}')
+    const runtimeRestoreKeys = String(runtimeCacheStep?.with?.['restore-keys'] ?? '')
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line !== '')
+    expect(runtimeRestoreKeys).toEqual(['${{ runner.os }}-${{ matrix.target }}-strata-desktop-runtime-'])
 
     const checkoutStep = steps.find(step => step.uses === 'actions/checkout@v7.0.1')
     expect(checkoutStep?.with?.submodules).toBe('recursive')
