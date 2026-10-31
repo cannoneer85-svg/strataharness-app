@@ -184,7 +184,7 @@ export function createElectronBuilderConfig(
       category: 'public.app-category.developer-tools',
       // macOS matches the application locale against this bundle, not Electron Framework resources.
       extendInfo: {
-        CFBundleLocalizations: ['en', 'zh_CN'],
+        CFBundleLocalizations: ['ru', 'en', 'zh_CN'],
         NSMicrophoneUsageDescription: STRATA_MACOS_MICROPHONE_USAGE,
       },
       // Ad-hoc signing keeps the modified Electron executable runnable without a Developer ID.

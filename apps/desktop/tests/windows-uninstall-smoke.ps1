@@ -69,12 +69,20 @@ try {
         if ($mode -eq 'home-inside') { $env:DSH_HOME = Join-Path $userDataPath 'home' } else { Remove-Item Env:DSH_HOME -ErrorAction SilentlyContinue }
         $process = Start-Process -FilePath $uninstaller -ArgumentList $arguments -PassThru -WindowStyle ($(if ($mode -eq 'interactive') { 'Normal' } else { 'Hidden' }))
         if ($mode -eq 'interactive') {
-            $welcomeText = if ($Language -eq 'ENGLISH') { 'Welcome' } else { -join [char[]]@(0x6B22, 0x8FCE) }
+            $welcomeText = switch ($Language) {
+                'RUSSIAN' { -join [char[]]@(0x0412, 0x0430, 0x0441, 0x0020, 0x043F, 0x0440, 0x0438, 0x0432, 0x0435, 0x0442, 0x0441, 0x0442, 0x0432, 0x0443, 0x0435, 0x0442) }
+                'ENGLISH' { 'Welcome' }
+                default { -join [char[]]@(0x6B22, 0x8FCE) }
+            }
             $welcome = Wait-Text $welcomeText
             $window = [InstallerCapture]::TopLevel($welcome)
             [void][InstallerCapture]::SaveNative($window, (Join-Path $OutputDirectory 'uninstall-welcome.png'), $false)
             [InstallerCapture]::Click([InstallerCapture]::GetDlgItem($window, 1))
-            $finishedText = if ($Language -eq 'ENGLISH') { 'has been uninstalled' } else { -join [char[]]@(0x5DF2, 0x4ECE, 0x4F60) }
+            $finishedText = switch ($Language) {
+                'RUSSIAN' { -join [char[]]@(0x0443, 0x0434, 0x0430, 0x043B, 0x0435, 0x043D, 0x0430) }
+                'ENGLISH' { 'has been uninstalled' }
+                default { -join [char[]]@(0x5DF2, 0x4ECE, 0x4F60) }
+            }
             [void](Wait-Text $finishedText)
             [InstallerCapture]::Click([InstallerCapture]::GetDlgItem($window, 1))
         }

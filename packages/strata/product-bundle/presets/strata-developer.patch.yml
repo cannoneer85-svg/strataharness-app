@@ -6,8 +6,6 @@
       name: '@deepseek-ai/dsh-agent-preset'
       config:
         id: strata-developer
-        name: Strata Developer
-        description: Engineering mode for the 6-stage Development cycle (Interview → Spec → Tickets → Implementation → Review → Close) with subagents, terminal, and TDD skills.
         order: 2
         plugins:
           - id: persona

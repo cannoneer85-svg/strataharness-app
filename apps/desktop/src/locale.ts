@@ -1,5 +1,9 @@
-/** Typed English and Chinese copy owned by the Electron shell. */
+/** Typed Russian, English, and Chinese copy owned by the Electron shell. */
 
+/** Supported primary language tags for Electron shell localization. */
+export type DesktopLocaleId = 'ru' | 'en' | 'zh'
+
+/** English Electron shell dictionary. */
 export const en = {
   cliCommandMenu: 'Manage dsh Command…',
   cliCommandTitle: 'Manage dsh Command',
@@ -173,6 +177,178 @@ export const en = {
 /** Every Desktop locale supplies the complete English key set. */
 export type DesktopMessages = { readonly [Key in keyof typeof en]: string }
 
+/** Russian Electron shell dictionary used by default. */
+export const ru = {
+  cliCommandMenu: 'Управление командой dsh…',
+  cliCommandTitle: 'Управление командой dsh',
+  cliCommandLocation: 'Команда приложения: {path}',
+  cliCommandSelected: 'Текущая команда dsh: {path}',
+  cliCommandTarget: 'Текущая цель запуска: {path}',
+  cliCommandShadowed: 'Другая установка dsh имеет приоритет. Удалите её или измените порядок в PATH, чтобы использовать команду приложения по умолчанию, либо запускайте её по полному пути.',
+  cliCommandSelectionUnknown: 'Не удалось проверить команду в оболочке. Возможно, приоритет имеет псевдоним или другая установка dsh.',
+  cliCommandInstalled: 'Команда приложения установлена.',
+  cliCommandNotInstalled: 'Добавьте команду приложения в терминал.',
+  cliCommandBroken: 'Команда приложения требует восстановления.',
+  cliCommandInstall: 'Установить',
+  cliCommandRepair: 'Восстановить',
+  cliCommandRemove: 'Удалить',
+  cliCommandClose: 'Закрыть',
+  cliCommandSwitch: 'Продолжить с командой приложения?',
+  cliCommandPreserve: 'Существующая команда будет сохранена. Другие установки и файлы инициализации оболочки не изменятся.',
+  cliCommandContinue: 'Продолжить',
+  cliCommandInstallApp: 'Переместите приложение в папку Applications перед настройкой команды dsh.',
+  cliCommandUpdating: 'Устанавливается обновление. Настройте команду после завершения установки.',
+  cliCommandNewTerminal: 'Откройте новый терминал и выполните dsh --version.',
+  cliCommandRemoved: 'Регистрация команды приложения удалена.',
+  cliCommandPreviousRestored: 'Предыдущий скрипт запуска восстановлен.',
+  cliCommandOtherKept: 'Другие установки команды оставлены без изменений.',
+  cliCommandBackupKept: 'Предыдущий скрипт запуска сохранён по пути: {path}',
+  cliCommandChanged: 'Команда или переменная PATH изменились, пока это окно было открыто. Откройте «Управление командой dsh» снова, чтобы проверить текущее состояние.',
+  cliCommandOwnershipError: 'Регистрация команды или резервная копия изменились. Посторонняя команда не была удалена.',
+  cliCommandFailed: 'Не удалось обновить команду. Убедитесь, что приложение установлено и каталог назначения доступен для записи, затем повторите попытку.',
+  application: 'Приложение',
+  fileMenu: 'Файл',
+  closePage: 'Закрыть вкладку или окно',
+  aboutMenu: 'О программе StrataHarness',
+  aboutProduct: 'StrataHarness',
+  aboutVersion: 'Версия V{version}',
+  aboutEngineVersion: 'Движок: DSH {engineVersion}',
+  hideApplication: 'Скрыть StrataHarness',
+  hideOtherApplications: 'Скрыть остальные',
+  showAllApplications: 'Показать все',
+  quitApplication: 'Выйти из StrataHarness',
+  openApplication: 'Открыть StrataHarness',
+  quit: 'Выйти',
+  cancel: 'Отмена',
+  quitTitle: 'Выйти из StrataHarness?',
+  quitActiveTasks: 'Выполняющиеся задачи будут прерваны.',
+  quitScheduledTasks: 'Запланированные задачи не будут запускаться, пока приложение закрыто.',
+  quitActiveAndScheduledTasks: 'Выполняющиеся задачи будут прерваны, а запланированные задачи не будут запускаться, пока приложение закрыто.',
+  backgroundNoticeBody: 'Выполняющиеся задачи продолжат работу. Окно можно снова открыть из системного трея.',
+  backgroundNoticeConfirm: 'Понятно',
+  edit: 'Правка',
+  menuBar: 'Меню приложения',
+  delete: 'Удалить',
+  undo: 'Отменить',
+  redo: 'Повторить',
+  cut: 'Вырезать',
+  copy: 'Копировать',
+  paste: 'Вставить',
+  selectAll: 'Выделить всё',
+  startupFailed: 'StrataHarness недоступен',
+  fatalSummary: 'Приложение не смогло запуститься или неожиданно завершило работу.',
+  startupAddressInUse: 'Запущен другой экземпляр DSH (например, dsh web или десктопное приложение). Одновременный запуск невозможен. Завершите другой экземпляр DSH и перезапустите приложение.',
+  diagnosticTruncated: '… Подробности ошибки сокращены.',
+  reportWrittenTo: 'Диагностический отчёт: {path}',
+  startupReinstallAdvice: 'Если файлы приложения отсутствуют или повреждены, закройте приложение и переустановите его. Ваши задачи хранятся отдельно.',
+  exitApplication: 'Выйти',
+  restartApplication: 'Перезапустить',
+  recoveryOperationFailed: 'Не удалось выполнить восстановление',
+  disableThirdPartyPlugins: 'Отключить сторонние плагины, сохранить резервную копию патча профиля и перезапустить',
+  welcomeTitle: 'StrataHarness',
+  welcomeBrand: 'StrataHarness',
+  welcomeTaglineBefore: 'Добро пожаловать в ',
+  welcomeTaglineBrand: 'StrataHarness',
+  welcomeTaglineAfter: '',
+  welcomeDescription: 'Структурированная мультимодельная разработка.',
+  welcomeOpenWorkspace: 'Настроить модели',
+  welcomeAuthStarting: 'Открытие страницы входа…',
+  welcomeAuthWaiting: 'Браузер не открылся автоматически?',
+  welcomeAuthWaitingDescription: 'Скопируйте ссылку для входа и откройте её в браузере.',
+  welcomeAuthExchanging: 'Завершение входа…',
+  welcomeAuthExpired: 'Время ожидания входа истекло',
+  welcomeAuthExpiredDescription: 'Войдите снова, чтобы продолжить',
+  welcomeAuthFailed: 'Не удалось завершить вход. Повторите попытку.',
+  welcomeAuthCopyLink: 'Скопировать ссылку для входа',
+  welcomeAuthCopied: 'Скопировано',
+  welcomeAuthCopyFailed: 'Не удалось скопировать. Повторите попытку.',
+  welcomeAuthCancel: 'Отмена',
+  welcomeAuthRetry: 'Войти снова',
+  welcomeSignIn: 'Войти',
+  welcomeApiKey: 'Добавить API-ключ',
+  welcomeKeyTitle: 'Добавьте API-ключ или настройте провайдеров',
+  welcomeKeyDescription: 'Сохраните API-ключ DeepSeek сейчас или откройте рабочую область, чтобы настроить OpenAI, Anthropic, Gemini, OpenRouter и собственные провайдеры в разделе «Настройки → Модели».',
+  welcomeKeyPlaceholder: 'Введите API-ключ DeepSeek',
+  welcomeKeySave: 'Сохранить и продолжить',
+  welcomeKeyLater: 'Перейти к настройкам',
+  welcomeKeyBack: 'Назад',
+  welcomeSessionExpired: 'Вы вышли из учётной записи. Войдите снова.',
+  welcomeKeyBlank: 'Введите API-ключ.',
+  welcomeKeyInvalid: 'Введите только сам API-ключ — без кавычек, пробелов и присваивания переменной окружения.',
+  welcomeKeyFailed: 'Не удалось сохранить API-ключ. Повторите попытку.',
+  welcomeContinueFailed: 'Не удалось открыть рабочую область. Повторите попытку.',
+  checkUpdatesMenu: 'Проверить обновления…',
+  reloadPageMenu: 'Перезагрузить страницу',
+  restartAppHostMenu: 'Перезапустить приложение и хост',
+  updateCheckFailedTitle: 'Ошибка проверки обновлений',
+  updateCheckFailed: 'Не удалось проверить наличие обновлений. Повторите попытку позже.',
+  updateDownloadFailed: 'Не удалось загрузить обновление. Повторите попытку.',
+  updateInstallFailed: 'Не удалось установить обновление. Повторите попытку позже.',
+  updateCheckNetworkFailed: 'Не удалось проверить наличие обновлений. Проверьте подключение к сети и повторите попытку.',
+  updateDownloadNetworkFailed: 'Не удалось загрузить обновление. Проверьте подключение к сети и повторите попытку.',
+  updateInstallNetworkFailed: 'Не удалось установить обновление. Проверьте подключение к сети и повторите попытку.',
+  unknownError: 'Неизвестная ошибка',
+  updateCheckTitle: 'Проверка обновлений',
+  updateCurrentDetail: 'Текущая версия: {version}',
+  updateCurrent: 'Установлена актуальная версия',
+  updateChecking: 'Проверка обновлений…',
+  updateDownload: 'Загрузить обновление',
+  updateDownloadedTitle: 'Версия {version} готова к установке',
+  updateDownloadedDetail: 'Во время обновления приложение закроется и автоматически запустится снова после завершения.',
+  updateDownloadedDetailWindows: 'Во время обновления приложение временно закроется и автоматически запустится снова после завершения.\n\nУстановка обновления может занять некоторое время. Пожалуйста, подождите и не запускайте приложение повторно до окончания установки.',
+  updateClose: 'Закрыть',
+  updateAcknowledge: 'ОК',
+  updateLater: 'Обновить позже',
+  updateDownloading: 'Загрузка {percent}%…',
+  updateVerifying: 'Проверка файлов обновления…',
+  updateInstalling: 'Подготовка к перезапуску…',
+  updateRetry: 'Повторить обновление',
+  updateActiveTasks: 'Выполняются активные задачи',
+  updateActiveTasksDetail: 'Обновление остановит выполняющиеся задачи и перезапустит приложение. Продолжить?',
+  updateStopTasks: 'Остановить задачи и обновить',
+  updateTasksChanged: 'Запущены новые задачи. Подтвердите остановку задач и установку обновления ещё раз.',
+  updateTasksUnavailable: 'Статус задач недоступен. Повторите попытку обновления, когда рабочая область будет готова.',
+  updateStopFailed: 'Не удалось безопасно остановить задачи. Обновление не установлено. Повторите попытку позже.',
+  updateTechnicalDetails: 'Технические подробности',
+  updateTitle: 'Обновление StrataHarness',
+  updateAvailable: 'Доступна новая версия: {version}',
+  updateDetail: 'После завершения загрузки вы сможете установить обновление и перезапустить приложение.',
+  installAndRestart: 'Установить и перезапустить',
+  later: 'Позже',
+  updateFailedTitle: 'Ошибка обновления',
+  mandatoryTitle: 'Обновите приложение для продолжения работы',
+  mandatoryDetail: 'Эта версия больше не поддерживается. Обновите приложение, чтобы продолжить работу. Выполняющиеся задачи продолжат работу до подтверждения установки и перезапуска.',
+  mandatoryUnavailable: 'Не удалось проверить требования к обновлению. Повторите попытку позже.',
+  policyLoginTitle: 'Вход в тестовое окружение',
+  policyLoginRequired: 'Войдите через Feishu, чтобы проверить требования к обновлению для этой тестовой сборки. Вход не запускает загрузку или установку обновления.',
+  policyLogin: 'Войти через Feishu',
+  policyLoginFailed: 'Вход через Feishu не завершён. Повторите попытку.',
+  policyLoginLoading: 'Загрузка страницы входа…',
+  mandatoryNoRelease: 'Совместимое обновление не найдено. Проверьте снова или обратитесь в поддержку.',
+  mandatoryRefresh: 'Проверить снова',
+  mandatoryPage: 'Скачать с официального сайта',
+  mandatoryCopy: 'Скопировать ссылку на загрузку',
+  mandatoryPageFailed: 'Не удалось открыть официальную страницу загрузки. Скопируйте ссылку и откройте её в браузере.',
+  mandatoryActionFailed: 'Не удалось выполнить действие. Повторите попытку. Продолжить работу с приложением можно после завершения обновления.',
+  mandatoryReady: 'Обновление готово',
+  mandatoryVersion: 'Новая версия: {version}',
+  mandatoryReadyDetail: 'Во время обновления приложение закроется и автоматически запустится снова после завершения.',
+  mandatoryDeferred: 'Выполняющиеся задачи продолжат работу. Завершите обновление перед дальнейшим использованием приложения.',
+  mandatoryContinue: 'Продолжить обновление',
+  mandatoryInspecting: 'Проверка активных задач…',
+  mandatoryStopping: 'Остановка задач…',
+  mandatoryRestarting: 'Приложение скоро перезапустится. Пожалуйста, подождите.',
+  mandatoryDownloadFailed: 'Не удалось загрузить или подготовить файлы обновления. Повторите попытку.',
+  mandatoryInstallFailed: 'Обновление не установлено. Проверьте активные задачи и повторите попытку.',
+  mandatoryOpenHelp: 'Страница не открылась?',
+  mandatoryReopen: 'Открыть официальную страницу загрузки снова',
+  mandatoryCopied: 'Ссылка скопирована',
+  mandatoryCopyFailed: 'Не удалось скопировать ссылку. Выделите и скопируйте её вручную ниже.',
+  mandatoryAddress: 'Ссылка на загрузку',
+  mandatoryNotification: 'Вернитесь в приложение, чтобы подтвердить установку и перезапуск.',
+} as const satisfies DesktopMessages
+
+/** Simplified Chinese Electron shell dictionary. */
 export const zh = {
   cliCommandMenu: '管理 dsh 命令…',
   cliCommandTitle: '管理 dsh 命令',
@@ -345,34 +521,50 @@ export const zh = {
 
 /** Locale payload exposed to the Desktop-owned renderer. */
 export interface DesktopLocale {
-  readonly id: 'en' | 'zh-CN'
+  readonly id: 'ru' | 'en' | 'zh-CN'
   readonly messages: DesktopMessages
 }
 
-/** Resolve Electron's locale to one shipped Desktop dictionary. */
-export function resolveDesktopLocale(locale: string): DesktopLocale {
-  return locale.toLowerCase().startsWith('zh')
-    ? { id: 'zh-CN', messages: zh }
-    : { id: 'en', messages: en }
+function primaryLanguageTag(tag: string | null | undefined): string {
+  return tag?.trim().toLowerCase().split(/[-_]/u)[0] ?? ''
+}
+
+function isSupportedDesktopLocaleId(tag: string): tag is DesktopLocaleId {
+  return tag === 'ru' || tag === 'en' || tag === 'zh'
 }
 
 /**
- * Choose a built-in dictionary from the shared preference, then ordered OS languages.
- * @param preference - explicit locale.preference, or null when no language was selected.
- * @param languages - operating-system languages in preference order.
- * @returns the supported dictionary, falling back to English.
+ * Resolve a BCP-47 or underscore-delimited locale tag to one shipped Desktop dictionary.
+ * @param locale - Candidate locale tag such as `ru`, `ru-RU`, `en-US`, or `zh-CN`.
+ * @returns The matching shipped Desktop locale, falling back to Russian.
  */
-export function resolveDesktopStartupLocale(preference: string | null, languages: readonly string[]): DesktopLocale {
-  const selected = preference?.toLowerCase()
-  if (selected === 'zh' || selected === 'en') return resolveDesktopLocale(selected)
-  for (const language of languages) {
-    const primary = language.toLowerCase().split('-')[0]
-    if (primary === 'zh' || primary === 'en') return resolveDesktopLocale(primary)
-  }
-  return resolveDesktopLocale('en')
+export function resolveDesktopLocale(locale: string): DesktopLocale {
+  // strata(override): resolve `ru`, `en`, and `zh` primary tags and default unknown tags to Russian
+  const primary = primaryLanguageTag(locale)
+  if (primary === 'zh') return { id: 'zh-CN', messages: zh }
+  if (primary === 'en') return { id: 'en', messages: en }
+  return { id: 'ru', messages: ru }
 }
 
-/** Replace named placeholders in one locale-owned message. */
+/**
+ * Choose a built-in dictionary from the shared preference, defaulting unconditionally to Russian.
+ * @param preference - Explicit `locale.preference`, or `null` when no language was selected.
+ * @param _languages - Operating-system languages in preference order (ignored for the StrataHarness Russian default).
+ * @returns The selected supported dictionary, or Russian when unset or unrecognized.
+ */
+export function resolveDesktopStartupLocale(preference: string | null, _languages: readonly string[]): DesktopLocale {
+  // strata(override): default startup locale to Russian regardless of OS languages when preference is unset
+  const selected = primaryLanguageTag(preference)
+  if (isSupportedDesktopLocaleId(selected)) return resolveDesktopLocale(selected)
+  return resolveDesktopLocale('ru')
+}
+
+/**
+ * Replace named placeholders in one locale-owned message.
+ * @param message - Template string containing `{key}` placeholders.
+ * @param values - Named replacement values.
+ * @returns Formatted localized string with unknown placeholders preserved.
+ */
 export function formatDesktopMessage(
   message: string,
   values: Readonly<Record<string, string>>,

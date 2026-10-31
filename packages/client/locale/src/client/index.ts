@@ -14,11 +14,20 @@ import {
 // (client bundle purity gate).
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { parseLocaleBootstrap, type LocaleBootstrap, type LocaleBridge } from './bootstrap.ts'
+import { interpolateTemplate } from './interpolate.ts'
 // Type-only: pulls the SlotRegistry service merge (ctx.slots).
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import {
-  LOCALE_ID_PATTERN, LOCALE_IDS, LOCALE_PREFERENCE_FIELD, LOCALE_SETTINGS_NAMESPACE,
-  type BuiltInLocaleId, type LocaleId, type LocaleSettings,
+  LOCALE_CONFIG_GLOBAL,
+  LOCALE_ID_PATTERN,
+  LOCALE_IDS,
+  LOCALE_PREFERENCE_FIELD,
+  LOCALE_SETTINGS_NAMESPACE,
+  LocaleDeploymentConfigSchema,
+  type BuiltInLocaleId,
+  type LocaleDeploymentConfig,
+  type LocaleId,
+  type LocaleSettings,
 } from '../locale-settings.ts'
 import { en, zh, type CommonKey } from '../locales/index.ts'
 import {
@@ -31,7 +40,7 @@ import { createLanguageRowStore } from './settings-store.ts'
 export type { LanguageRowComponentProps, LanguageRowInjected } from './LanguageRow.tsx'
 export type { LanguageOptionRow, LanguageRowState } from './settings-store.ts'
 export type { CommonKey } from '../locales/index.ts'
-export type { BuiltInLocaleId, LocaleId, LocaleSettings } from '../locale-settings.ts'
+export type { BuiltInLocaleId, LocaleDeploymentConfig, LocaleId, LocaleSettings } from '../locale-settings.ts'
 
 // The translate currency lives in ui-slots (the render machinery synthesizes
 // the seat); re-exported here so dictionary owners import one package.
@@ -47,7 +56,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-/** Locale dictionary: flat key to template string ({name} placeholders). */
+/** Locale dictionary: flat key to template string ({name} placeholders and compact ICU plural expressions). */
 export type LocaleDict = Record<string, string>
 
 /** Input accepted when a language-pack plugin adds a selectable language. */
@@ -128,6 +137,22 @@ function localeKey(value: string): string {
   return value.toLowerCase()
 }
 
+/**
+ * Match a requested BCP 47 tag against registered locale definitions:
+ * exact case-insensitive id first, then exact bare primary subtag, then
+ * regional definition sharing the primary subtag.
+ */
+function matchRegisteredLocale(locales: readonly LocaleDefinition[], tag: string): LocaleId | undefined {
+  const requested = localeKey(tag)
+  const exact = locales.find(locale => localeKey(locale.id) === requested)
+  if (exact !== undefined) return exact.id
+  const primary = requested.split('-')[0]
+  const bare = locales.find(locale => localeKey(locale.id) === primary)
+  if (bare !== undefined) return bare.id
+  const regional = locales.find(locale => localeKey(locale.id).split('-')[0] === primary)
+  return regional?.id
+}
+
 /** Validate and detach a language-pack contribution from its mutable input. */
 function normalizeLanguage(input: LanguageRegistration): Readonly<LanguageRegistration> {
   if (!LOCALE_ID_PATTERN.test(input.id)) {
@@ -152,6 +177,11 @@ function syncDocumentLanguage(snapshot: LocaleSnapshot): void {
   if (document.documentElement.lang !== language) document.documentElement.lang = language
 }
 
+interface DictionaryLookupHit {
+  readonly locale: LocaleId
+  readonly value: string
+}
+
 /**
  * Dictionary registry plus locale preference. Lookup walks the active
  * language's declared fallback chain in the entry namespace, then repeats it
@@ -164,6 +194,8 @@ function syncDocumentLanguage(snapshot: LocaleSnapshot): void {
  */
 export class LocaleRuntime {
   private dicts = new Map<string, Map<string, LocaleDict>>()
+  private textCatalogs = new Map<string, ReadonlyMap<string, string>[]>()
+  private pluralRules = new Map<string, Intl.PluralRules>()
   private bound = new Map<string, Translate>()
   private catalog = new Map<string, LocaleDefinition>()
   private fallbackChains = new Map<string, readonly LocaleId[]>()
@@ -171,7 +203,9 @@ export class LocaleRuntime {
   private listeners = new Set<() => void>()
   private readonly ctx: ClientContext
   private readonly host: ConfigForm<LocaleSettings> | undefined
-  /** Browser-derived locale standing wherever no explicit Host selection does. */
+  private readonly defaultLocale: LocaleId | undefined
+  private readonly localeOrder: readonly LocaleId[] | undefined
+  /** Default or browser-derived locale standing wherever no explicit Host selection does. */
   private provisional: LocaleId
   /** Last explicit selection, including one awaiting an external registration. */
   private preference: LocaleId | undefined
@@ -182,15 +216,24 @@ export class LocaleRuntime {
    * @param host - durable preference scope owned by the providing plugin;
    * absent compositions (standalone dictionary registries) stay process-local.
    * @param bootstrap - native initialization; absent in ordinary browsers.
+   * @param options - optional deployment default locale and selector display order.
    */
-  constructor(ctx: ClientContext, host?: ConfigForm<LocaleSettings>, private readonly bootstrap?: LocaleBootstrap) {
+  constructor(
+    ctx: ClientContext,
+    host?: ConfigForm<LocaleSettings>,
+    private readonly bootstrap?: LocaleBootstrap,
+    options?: LocaleDeploymentConfig,
+  ) {
     this.ctx = ctx
     this.host = host
+    const configured = options === undefined ? undefined : LocaleDeploymentConfigSchema(options)
+    this.defaultLocale = configured?.defaultLocale
+    this.localeOrder = configured?.localeOrder
     for (const locale of BUILT_IN_LOCALES) this.catalog.set(localeKey(locale.id), locale)
     const locales = this.localeList()
-    this.provisional = resolveInitialLocale(locales, bootstrap?.languages)
+    this.provisional = resolveInitialLocale(locales, bootstrap?.languages, this.defaultLocale)
     this.preference = bootstrap?.preference ?? undefined
-    this.snapshot = Object.freeze({ active: this.resolveActive(), locales, revision: 0 })
+    this.snapshot = Object.freeze({ active: this.resolveActive(locales), locales, revision: 0 })
     if (host !== undefined) {
       ctx.effect(() => host.subscribe(() => { this.adopt(host) }), 'locale: settings scope adoption')
       this.adopt(host)
@@ -207,16 +250,65 @@ export class LocaleRuntime {
 
   /**
    * Resolve package text through the active language's declared fallback chain.
-   * Plain strings stay verbatim; maps do not consult registered dictionaries.
+   * Plain strings stay verbatim; object maps prioritize explicit `text[locale]`
+   * entries over registered built-in text catalogs before falling back to `text.en`.
    * @param text - package text whose locale keys are lowercase and include English.
    * @returns the first available translation, including an empty string.
    */
   resolveText(text: LocalizedText): string {
     if (typeof text === 'string') return text
-    return this.fallbackChain(this.snapshot.active).reduceRight(
-      (resolved, locale) => text[localeKey(locale)] ?? resolved,
-      text.en,
-    )
+    for (const locale of this.fallbackChain(this.snapshot.active)) {
+      const key = localeKey(locale)
+      if (key === localeKey(FALLBACK_LOCALE)) break
+      const direct = Object.hasOwn(text, key) ? text[key] : undefined
+      if (direct !== undefined) return direct
+      const catalogValue = this.lookupTextCatalog(key, text.en)
+      if (catalogValue !== undefined) return catalogValue
+    }
+    return text.en
+  }
+
+  /**
+   * Whether an explicit preference or configured `defaultLocale` names a tag
+   * whose language definition has not registered yet.
+   * @returns true while the requested locale is unresolved in the current catalog.
+   */
+  isAwaitingRequestedLocale(): boolean {
+    const target = this.preference ?? this.defaultLocale
+    return target !== undefined && matchRegisteredLocale(this.snapshot.locales, target) === undefined
+  }
+
+  /**
+   * Register a localized text catalog keyed by canonical English text (`text.en`)
+   * for built-in `LocalizedText` objects that omit a direct key for `locale`.
+   * Explicit `text[locale]` entries on a `LocalizedText` object always take precedence.
+   * @param locale - BCP 47-style locale identifier this catalog translates into.
+   * @param entries - Mapping from exact `text.en` strings to localized strings.
+   * @returns Idempotent disposer removing this catalog and bumping the snapshot revision.
+   * @throws When `locale` is not a valid BCP 47-style tag.
+   */
+  registerTextCatalog(locale: LocaleId, entries: Readonly<Record<string, string>>): () => void {
+    if (!LOCALE_ID_PATTERN.test(locale)) {
+      throw new Error(`locale id "${locale}" is not a BCP 47-style tag`)
+    }
+    const key = localeKey(locale)
+    const table: ReadonlyMap<string, string> = new Map(Object.entries(entries))
+    let list = this.textCatalogs.get(key)
+    if (list === undefined) {
+      list = []
+      this.textCatalogs.set(key, list)
+    }
+    list.push(table)
+    this.publish(this.snapshot.active, false)
+    return () => {
+      const current = this.textCatalogs.get(key)
+      if (current === undefined) return
+      const index = current.indexOf(table)
+      if (index < 0) return
+      current.splice(index, 1)
+      if (current.length === 0) this.textCatalogs.delete(key)
+      this.publish(this.snapshot.active, false)
+    }
   }
 
   /**
@@ -298,36 +390,80 @@ export class LocaleRuntime {
 
   /**
    * Adopt the scope's accepted durable selection without writing it back; an
-   * absent selection returns to the browser-derived locale.
+   * absent selection returns to the provisional locale.
    * @param host - the constructor-narrowed scope driving this adoption.
    */
   private adopt(host: ConfigForm<LocaleSettings>): void {
     const section = host.getSnapshot().value
     if (section === undefined) return
     this.preference = section.preference
-    const target = this.resolveActive()
+    const target = this.resolveActive(this.snapshot.locales)
     if (this.snapshot.active === target) return
     this.publish(target, true)
   }
 
-  /** Recompute browser fallback and publish the current catalog. */
+  /** Recompute provisional fallback and publish the current catalog. */
   private publishCatalog(): void {
     this.fallbackChains.clear()
     const locales = this.localeList()
-    this.provisional = resolveInitialLocale(locales, this.bootstrap?.languages)
-    const active = this.resolveActive()
+    this.provisional = resolveInitialLocale(locales, this.bootstrap?.languages, this.defaultLocale)
+    const active = this.resolveActive(locales)
     this.publish(active, active !== this.snapshot.active, locales)
   }
 
-  /** Resolve an explicit preference only while its definition is available. */
-  private resolveActive(): LocaleId {
+  /** Resolve an explicit preference (including regional subtags) while a matching definition is available. */
+  private resolveActive(locales: readonly LocaleDefinition[]): LocaleId {
     if (this.preference === undefined) return this.provisional
-    return this.catalog.get(localeKey(this.preference))?.id ?? this.provisional
+    return matchRegisteredLocale(locales, this.preference) ?? this.provisional
   }
 
-  /** Snapshot the catalog in registration order. */
+  /** Snapshot the catalog ordered by configured `localeOrder`, then registration order. */
   private localeList(): readonly LocaleDefinition[] {
-    return Object.freeze([...this.catalog.values()])
+    if (this.localeOrder === undefined || this.localeOrder.length === 0) {
+      return Object.freeze([...this.catalog.values()])
+    }
+    const ordered: LocaleDefinition[] = []
+    const seen = new Set<string>()
+    for (const id of this.localeOrder) {
+      const key = localeKey(id)
+      if (seen.has(key)) continue
+      const definition = this.catalog.get(key)
+      if (definition !== undefined) {
+        seen.add(key)
+        ordered.push(definition)
+      }
+    }
+    for (const [key, definition] of this.catalog) {
+      if (!seen.has(key)) ordered.push(definition)
+    }
+    return Object.freeze(ordered)
+  }
+
+  private lookupTextCatalog(key: string, sourceEn: string): string | undefined {
+    const list = this.textCatalogs.get(key)
+    if (list === undefined) return undefined
+    let hit: string | undefined
+    for (const catalog of list) {
+      const value = catalog.get(sourceEn)
+      if (value !== undefined) hit = value
+    }
+    return hit
+  }
+
+  private pluralRulesFor(locale: LocaleId): Intl.PluralRules {
+    const key = localeKey(locale)
+    let rules = this.pluralRules.get(key)
+    if (rules === undefined) {
+      try {
+        rules = new Intl.PluralRules(locale)
+      } catch (_rangeError) {
+        // Synthetic BCP 47-style tags accepted by LOCALE_ID_PATTERN (e.g. "ru-x")
+        // can fail Intl canonicalization; fall back to English plural categories.
+        rules = new Intl.PluralRules(FALLBACK_LOCALE)
+      }
+      this.pluralRules.set(key, rules)
+    }
+    return rules
   }
 
   /** Fail a new definition whose complete fallback path does not reach English. */
@@ -465,19 +601,20 @@ export class LocaleRuntime {
 
   private translate(ns: string, key: string, params?: Record<string, unknown>): string {
     const chain = this.fallbackChain(this.snapshot.active)
-    const template = this.lookup(ns, key, chain)
+    const hit = this.lookup(ns, key, chain)
       ?? (ns !== COMMON_NS ? this.lookup(COMMON_NS, key, chain) : undefined)
-      ?? key
-    if (!params) return template
-    return template.replace(/\{(\w+)\}/g, (match, name: string) =>
-      name in params ? String(params[name]) : match)
+    const template = hit?.value ?? key
+    if (!params || !template.includes('{')) return template
+    const templateLocale = hit?.locale ?? this.snapshot.active
+    return interpolateTemplate(template, params, value => this.pluralRulesFor(templateLocale).select(value))
   }
 
-  private lookup(ns: string, key: string, chain: readonly LocaleId[]): string | undefined {
+  private lookup(ns: string, key: string, chain: readonly LocaleId[]): DictionaryLookupHit | undefined {
     const locales = this.dicts.get(ns)
     for (const locale of chain) {
-      const value = locales?.get(localeKey(locale))?.[key]
-      if (value !== undefined) return value
+      const dict = locales?.get(localeKey(locale))
+      const value = dict !== undefined && Object.hasOwn(dict, key) ? dict[key] : undefined
+      if (value !== undefined) return { locale, value }
     }
     return undefined
   }
@@ -513,10 +650,18 @@ export class LocaleRuntime {
 }
 
 /**
- * The browser's own language wins over {@link FALLBACK_LOCALE}; an explicit
- * Host preference may replace this provisional value after plugin activation.
+ * Configured deployment `defaultLocale` wins over browser detection and degrades
+ * to {@link FALLBACK_LOCALE} when unregistered; otherwise browser languages win
+ * over {@link FALLBACK_LOCALE}.
  */
-function resolveInitialLocale(locales: readonly LocaleDefinition[], languages?: readonly string[]): LocaleId {
+function resolveInitialLocale(
+  locales: readonly LocaleDefinition[],
+  languages?: readonly string[],
+  defaultLocale?: LocaleId,
+): LocaleId {
+  if (defaultLocale !== undefined) {
+    return matchRegisteredLocale(locales, defaultLocale) ?? FALLBACK_LOCALE
+  }
   return detectBrowserLocale(locales, languages) ?? FALLBACK_LOCALE
 }
 
@@ -540,12 +685,8 @@ function detectBrowserLocale(locales: readonly LocaleDefinition[], languages?: r
     languages = [...(browserLanguages ?? []), navigator.language]
   }
   for (const tag of languages) {
-    const requested = localeKey(tag)
-    const exact = locales.find(locale => localeKey(locale.id) === requested)
-    if (exact !== undefined) return exact.id
-    const primary = requested.split('-')[0]
-    const match = locales.find(locale => localeKey(locale.id).split('-')[0] === primary)
-    if (match !== undefined) return match.id
+    const match = matchRegisteredLocale(locales, tag)
+    if (match !== undefined) return match
   }
   return undefined
 }
@@ -558,9 +699,20 @@ export const inject = ['slots', 'remote', 'configForms']
  * register the feature-owned Language preference row into the General
  * section's item slot (a feature owns its settings surface).
  * @param ctx - client cordis context.
+ * @param options - optional deployment locale configuration overriding page globals.
  * @returns resolves after native language initialization and plugin registration.
  */
-export async function apply(ctx: ClientContext): Promise<void> {
+export async function apply(ctx: ClientContext, options?: LocaleDeploymentConfig): Promise<void> {
+  const page = globalThis as Partial<Record<typeof LOCALE_CONFIG_GLOBAL, unknown>>
+  const payload = page[LOCALE_CONFIG_GLOBAL]
+  const injected: LocaleDeploymentConfig = payload === undefined ? {} : LocaleDeploymentConfigSchema(payload)
+  const parsedOptions: LocaleDeploymentConfig | undefined = options === undefined
+    ? undefined
+    : LocaleDeploymentConfigSchema(options)
+  const deployment: LocaleDeploymentConfig = {
+    defaultLocale: parsedOptions?.defaultLocale ?? injected.defaultLocale,
+    localeOrder: parsedOptions?.localeOrder ?? injected.localeOrder,
+  }
   const bridge = (globalThis as { __DSH_LOCALE__?: LocaleBridge }).__DSH_LOCALE__
   let bootstrap: LocaleBootstrap | undefined
   if (bridge !== undefined) {
@@ -575,13 +727,28 @@ export async function apply(ctx: ClientContext): Promise<void> {
     bootstrap = parseLocaleBootstrap(value)
   }
   const host = ctx.configForms.get<LocaleSettings>(LOCALE_SETTINGS_NAMESPACE)
-  const locale = new LocaleRuntime(ctx, host, bootstrap)
+  const locale = new LocaleRuntime(ctx, host, bootstrap, deployment)
   locale.register(COMMON_NS, { zh, en })
   locale.register(SETTINGS_NS, { zh: settingsZh, en: settingsEn })
   ctx.provide('locale', locale)
+  let awaitingInitialLocale = locale.isAwaitingRequestedLocale()
+  let initialLocaleTimer: ReturnType<typeof setTimeout> | undefined
+  if (awaitingInitialLocale) {
+    initialLocaleTimer = setTimeout(() => {
+      awaitingInitialLocale = false
+      initialLocaleTimer = undefined
+      const snapshot = locale.getSnapshot()
+      syncDocumentLanguage(snapshot)
+      if (bridge !== undefined) bridge.onChange(snapshot.active)
+    }, 0)
+    ctx.effect(() => () => {
+      clearTimeout(initialLocaleTimer)
+      initialLocaleTimer = undefined
+    }, 'locale: deferred initial locale sync')
+  }
   if (bridge !== undefined) {
     ctx.on('locale/change', (snapshot) => { bridge.onChange(snapshot.active) })
-    bridge.onChange(locale.getSnapshot().active)
+    if (!awaitingInitialLocale) bridge.onChange(locale.getSnapshot().active)
   }
   // The service IS the LocaleFace (bind + getSnapshot/subscribe): install it
   // so the render machinery can synthesize the `t` standard seat.
@@ -591,7 +758,12 @@ export async function apply(ctx: ClientContext): Promise<void> {
   let bound: BoundActions<typeof store> | undefined
   const sync = (): void => {
     const snapshot = locale.getSnapshot()
-    syncDocumentLanguage(snapshot)
+    if (awaitingInitialLocale && !locale.isAwaitingRequestedLocale()) {
+      awaitingInitialLocale = false
+      clearTimeout(initialLocaleTimer)
+      initialLocaleTimer = undefined
+    }
+    if (!awaitingInitialLocale) syncDocumentLanguage(snapshot)
     bound?.sync(
       snapshot.active,
       snapshot.locales.map(l => ({ id: l.id, label: l.label })),
@@ -603,7 +775,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
   // (browser detection, or a stored preference adopted after activation), so
   // state it once at activation rather than waiting for the first change.
   sync()
-  const injected = (actions: BoundActions<typeof store>): LanguageRowInjected => {
+  const injectedFace = (actions: BoundActions<typeof store>): LanguageRowInjected => {
     bound = actions
     // Re-sync from the getter so no event is lost between registration and
     // first render (the store's revision guard drops stale duplicates).
@@ -618,6 +790,6 @@ export async function apply(ctx: ClientContext): Promise<void> {
     order: 0,
     store,
     locale: SETTINGS_NS,
-    inject: injected,
+    inject: injectedFace,
   }, LanguageRow))
 }

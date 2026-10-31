@@ -90,12 +90,42 @@ function cardLabel(title: string, entryId: string | null, state: string): string
   return idAddsToTitle(entryId, title) ? `${title}, ${entryId}, ${state}` : `${title}, ${state}`
 }
 
+function isBuiltInPluginModule(moduleName: string): boolean {
+  return moduleName.startsWith('@deepseek-ai/') || moduleName.startsWith('@strata/') || moduleName.startsWith('cordis:')
+}
+
+function resolvePluginTitle(
+  moduleName: string,
+  title: LocalizedText | undefined,
+  resolveText: PluginInventorySettingsTabInjected['resolveText'],
+): string {
+  if (typeof title === 'object') return resolveText(title)
+  const raw = title ?? moduleName
+  // strata(override): consult centralized LocalizedText catalogs for built-in plugins lacking locale/en.json.
+  if (isBuiltInPluginModule(moduleName)) {
+    const translated = resolveText({ en: raw })
+    if (translated !== raw) return translated
+  }
+  return moduleShortName(raw)
+}
+
+function resolvePluginDescription(
+  moduleName: string,
+  description: LocalizedText | undefined,
+  resolveText: PluginInventorySettingsTabInjected['resolveText'],
+): string | undefined {
+  if (description === undefined) return undefined
+  const resolved = typeof description === 'string' && isBuiltInPluginModule(moduleName)
+    ? resolveText({ en: description })
+    : resolveText(description)
+  return resolved || undefined
+}
+
 /** Preserve translated titles and shorten literal package or module name fallbacks in Settings. */
 function pluginText(row: PluginInventoryEntry | AgentPresetRow, resolveText: PluginInventorySettingsTabInjected['resolveText']) {
-  const title = row.meta?.title
   return {
-    title: typeof title === 'object' ? resolveText(title) : moduleShortName(title ?? row.moduleName),
-    description: row.meta?.description === undefined ? undefined : resolveText(row.meta.description) || undefined,
+    title: resolvePluginTitle(row.moduleName, row.meta?.title, resolveText),
+    description: resolvePluginDescription(row.moduleName, row.meta?.description, resolveText),
   }
 }
 

@@ -6,8 +6,6 @@
       name: '@deepseek-ai/dsh-agent-preset'
       config:
         id: strata-analyst
-        name: Strata Analyst
-        description: Systems and business analysis, discovery interviews, specifications, ADRs, questionnaires, web research, and Office deliverables (Word, Excel, PPTX, PDF).
         order: 3
         plugins:
           - id: persona

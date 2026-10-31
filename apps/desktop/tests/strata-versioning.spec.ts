@@ -50,12 +50,16 @@ describe('StrataHarness dual-track product manifest and SemVer resolution', () =
       upstreamRepository: 'https://github.com/deepseek-ai/deepseek-harness.git',
     })
 
+    const localeRu = JSON.parse(
+      readFileSync(join(REPOSITORY_ROOT, 'packages', 'strata', 'locale-ru', 'package.json'), 'utf8'),
+    ) as { version: string }
     const productBundle = JSON.parse(
       readFileSync(join(REPOSITORY_ROOT, 'packages', 'strata', 'product-bundle', 'package.json'), 'utf8'),
     ) as { version: string }
     const uiBrand = JSON.parse(
       readFileSync(join(REPOSITORY_ROOT, 'packages', 'strata', 'ui-brand', 'package.json'), 'utf8'),
     ) as { version: string }
+    expect(localeRu.version).toBe('1.0.0')
     expect(productBundle.version).toBe('1.0.0')
     expect(uiBrand.version).toBe('1.0.0')
 
@@ -229,12 +233,16 @@ describe('StrataHarness dual-track product manifest and SemVer resolution', () =
     expect(() => desktopEngineVersion!(null)).toThrow(/manifest/u)
     expect(() => desktopEngineVersion!({ version: '1.0.0', dshEngineVersion: '' })).toThrow(/dshEngineVersion/u)
 
+    expect(formatDesktopAboutDetail!(desktopLocale.ru, '1.0.0', '0.2.1-rc.4')).toBe(
+      'Версия V1.0.0\nДвижок: DSH 0.2.1-rc.4',
+    )
     expect(formatDesktopAboutDetail!(desktopLocale.en, '1.0.0', '0.2.1-rc.4')).toBe(
       'Version V1.0.0\nEngine: DSH 0.2.1-rc.4',
     )
     expect(formatDesktopAboutDetail!(desktopLocale.zh, '1.0.0', '0.2.1-rc.4')).toBe(
       '版本 V1.0.0\n引擎：DSH 0.2.1-rc.4',
     )
+    expect(formatDesktopAboutDetail!(desktopLocale.ru, '1.0.0')).toBe('Версия V1.0.0')
     expect(formatDesktopAboutDetail!(desktopLocale.en, '1.0.0')).toBe('Version V1.0.0')
     expect(formatDesktopAboutDetail!(desktopLocale.zh, '1.0.0', '')).toBe('版本 V1.0.0')
   })

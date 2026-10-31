@@ -53,6 +53,16 @@
 - id: ui-brand-official
   disabled: true
 
+# ── Default Russian UI locale and language selector order ─────────────────────
+
+- id: locale
+  config:
+    defaultLocale: ru
+    localeOrder:
+      - ru
+      - en
+      - zh
+
 # ── Select StrataHarness as default preset and hide upstream dsh presets ──────
 
 - id: agent-preset-registry
@@ -78,3 +88,5 @@
       name: '@strata/product-bundle'
     - id: strata-ui-brand
       name: '@strata/ui-brand'
+    - id: strata-locale-ru
+      name: '@strata/locale-ru'

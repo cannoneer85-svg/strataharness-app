@@ -11,6 +11,7 @@ LangString decompressionFailed ${LANG_ENGLISH} "Payload extraction failed"
   !insertmacro dshExtractPayload "${PAYLOAD_FILE}"
 !macroend
 !ifdef SOURCE_DLL
+  LoadLanguageFile "${NSISDIR}\Contrib\Language files\Russian.nlf"
   LoadLanguageFile "${NSISDIR}\Contrib\Language files\SimpChinese.nlf"
   !include "..\..\installer\strings.nsh"
   !define DSH_INSTALLER_LOG_DIR "${REPORT_DIR}"

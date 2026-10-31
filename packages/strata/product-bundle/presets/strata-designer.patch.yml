@@ -6,8 +6,6 @@
       name: '@deepseek-ai/dsh-agent-preset'
       config:
         id: strata-designer
-        name: Strata Designer
-        description: UI/UX discovery interviews, user flows, design tokens, and interactive HTML/CSS/SVG prototypes with live preview in the right sidebar.
         order: 4
         plugins:
           - id: persona

@@ -42,7 +42,7 @@ export const STRATA_DESKTOP_PROTOCOLS: readonly [{
 export const STRATA_MACOS_MICROPHONE_USAGE: string
 
 /** NSIS installer language identifiers compiled into the Windows installer. */
-export const STRATA_NSIS_INSTALLER_LANGUAGES: readonly ['en_US', 'ru_RU', 'zh_CN']
+export const STRATA_NSIS_INSTALLER_LANGUAGES: readonly ['ru_RU', 'en_US', 'zh_CN']
 
 /** Environment variable supplying the production auto-update origin when self-hosted updates are enabled. */
 export const STRATA_PRODUCTION_UPDATE_ORIGIN_ENV: 'DOWNLOAD_PROD_ORIGIN'

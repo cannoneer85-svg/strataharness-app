@@ -24,8 +24,7 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "locale/en.json",
-    "locale/zh.json",
+    "locale/*.json",
     "lib/index.js",
     "cordis.patch.yml",
     "presets/strata.patch.yml",
@@ -76,6 +75,7 @@
     "@deepseek-ai/dsh-tool-workflow": "workspace:*",
     "@deepseek-ai/dsh-workflow-ptc": "workspace:*",
     "@deepseek-ai/schemastery": "workspace:~",
+    "@strata/locale-ru": "workspace:~",
     "@strata/ui-brand": "workspace:~"
   },
   "peerDependencies": {

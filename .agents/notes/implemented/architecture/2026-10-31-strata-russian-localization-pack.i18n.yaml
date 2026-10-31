@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-10-31-strata-russian-localization-pack.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-31-strata-russian-localization-pack.md
+/agent-note-soft-fork-russian-language-pack-isolation-and-default-locale-contract:
+  en: 1e25d611b80e8b97
+  zh: 013ba714681b7e7e
+/agent-note-soft-fork-russian-language-pack-isolation-and-default-locale-contract/problem:
+  en: 9a7070b71684c804
+  zh: aae318b04dfab0f7
+/agent-note-soft-fork-russian-language-pack-isolation-and-default-locale-contract/decision:
+  en: e67f0af526e8b12d
+  zh: a6be18720e2b2d5e
+/agent-note-soft-fork-russian-language-pack-isolation-and-default-locale-contract/alternatives-considered:
+  en: b8ec10f7b99ad318
+  zh: 6b08e6bec0bf0f15
+/agent-note-soft-fork-russian-language-pack-isolation-and-default-locale-contract/consequences:
+  en: 4678df86d402679a
+  zh: 149822f751f90dd3

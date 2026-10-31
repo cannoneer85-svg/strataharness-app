@@ -64,6 +64,7 @@ describe('document language', () => {
     const own = navigator as unknown as Record<string, unknown>
     delete own.languages
     delete own.language
+    vi.unstubAllGlobals()
   })
 
   it('states the resolved locale at activation, not the value the markup shipped', async () => {
@@ -110,6 +111,37 @@ describe('document language', () => {
       locale.setLocale('en')
       expect(observer.takeRecords()).toHaveLength(1)
       expect(langOf()).toBe('en')
+    } finally {
+      observer.disconnect()
+    }
+  })
+
+  it('preserves served <html lang="ru"> while awaiting Phase-1 language pack registration, and settles to en if unregistered', async () => {
+    document.documentElement.lang = 'ru'
+    vi.stubGlobal('__DSH_LOCALE_CONFIG__', {
+      defaultLocale: 'ru',
+      localeOrder: ['ru', 'en', 'zh'],
+    })
+    const observer = new MutationObserver(() => {})
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] })
+    try {
+      const { ctx, locale } = await bench()
+      expect(langOf()).toBe('ru')
+      expect(observer.takeRecords()).toHaveLength(0)
+
+      locale.addLanguage({ id: 'ru', label: 'Русский', fallback: 'en' })
+      expect(langOf()).toBe('ru')
+      expect(observer.takeRecords()).toHaveLength(0)
+      await ctx.fiber.dispose()
+
+      // When @strata/locale-ru is disabled, the fallback macrotask syncs <html lang="en"> without bridge.
+      document.documentElement.lang = 'ru'
+      observer.takeRecords()
+      const unloaded = await bench()
+      expect(langOf()).toBe('ru')
+      await new Promise((resolve) => { setTimeout(resolve, 10) })
+      expect(langOf()).toBe('en')
+      await unloaded.ctx.fiber.dispose()
     } finally {
       observer.disconnect()
     }

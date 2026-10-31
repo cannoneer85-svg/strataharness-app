@@ -61,7 +61,6 @@ LangString INSTALLER_EXTRACT_UNSAVED ${LANG_ENGLISH} "The full report could not 
 LangString INSTALLER_EXTRACT_UNSAVED ${LANG_SIMPCHINESE} "无法保存完整错误报告，请使用“复制错误信息”保留。"
 LangString INSTALLER_EXTRACT_COPIED ${LANG_ENGLISH} "Error details were copied to the clipboard."
 LangString INSTALLER_EXTRACT_COPIED ${LANG_SIMPCHINESE} "错误信息已复制到剪贴板。"
-!ifdef LANG_RUSSIAN
 LangString INSTALLER_INSTALL ${LANG_RUSSIAN} "Установить"
 LangString INSTALLER_FINISH ${LANG_RUSSIAN} "Готово"
 LangString INSTALLER_NATIVE_PROGRESS ${LANG_RUSSIAN} "Подготовка к установке… %d%%"
@@ -93,4 +92,3 @@ LangString INSTALLER_EXTRACT_COLLAPSE ${LANG_RUSSIAN} "Скрыть подроб
 LangString INSTALLER_EXTRACT_SAVED ${LANG_RUSSIAN} "Полный отчёт сохранён в %s"
 LangString INSTALLER_EXTRACT_UNSAVED ${LANG_RUSSIAN} "Не удалось сохранить полный отчёт. Используйте «Копировать ошибки», чтобы сохранить его."
 LangString INSTALLER_EXTRACT_COPIED ${LANG_RUSSIAN} "Подробности ошибки скопированы в буфер обмена."
-!endif

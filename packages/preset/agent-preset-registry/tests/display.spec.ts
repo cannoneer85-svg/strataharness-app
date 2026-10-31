@@ -4,15 +4,26 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { presetDisplayText, type BuiltInPresetCopyKey } from '../src/display.ts'
+import { isBuiltInPreset, presetDisplayText, type BuiltInPresetCopyKey } from '../src/display.ts'
 
 const t = (key: BuiltInPresetCopyKey): string => `t:${key}`
 
 describe('presetDisplayText', () => {
-  it('resolves a shipped preset through its dictionary keys', () => {
-    expect(presetDisplayText({ id: 'standard' }, t)).toEqual({
-      name: 't:presetStandardName',
-      description: 't:presetStandardDescription',
+  it.each([
+    ['standard', 'presetStandardName', 'presetStandardDescription'],
+    ['ptc', 'presetPtcName', 'presetPtcDescription'],
+    ['minimal', 'presetMinimalName', 'presetMinimalDescription'],
+    ['cordis', 'presetCordisName', 'presetCordisDescription'],
+    ['strata', 'presetStrataName', 'presetStrataDescription'],
+    ['strata-developer', 'presetStrataDeveloperName', 'presetStrataDeveloperDescription'],
+    ['strata-analyst', 'presetStrataAnalystName', 'presetStrataAnalystDescription'],
+    ['strata-designer', 'presetStrataDesignerName', 'presetStrataDesignerDescription'],
+  ] as const)('resolves shipped preset %s through its dictionary keys', (id, nameKey, descriptionKey) => {
+    expect(isBuiltInPreset({ id })).toBe(true)
+    expect(isBuiltInPreset({ id, name: 'Overridden' })).toBe(false)
+    expect(presetDisplayText({ id }, t)).toEqual({
+      name: `t:${nameKey}`,
+      description: `t:${descriptionKey}`,
     })
   })
 

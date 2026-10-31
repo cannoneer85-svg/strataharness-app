@@ -1,10 +1,12 @@
 /** Locale bundles for the agent-preset hero chip, header label, and management section. */
 
+import type { BuiltInPresetCopyKey } from '@deepseek-ai/dsh-agent-preset-registry/display'
 import { guideEn, guideZh, type PresetGuideKey } from './guide-locales.ts'
 
 /** Locale keys these surfaces render. */
 export type AgentPresetSettingsKey =
   | PresetGuideKey
+  | BuiltInPresetCopyKey
   | 'builtInGroup'
   | 'customGroup'
   | 'seatHint'
@@ -13,14 +15,6 @@ export type AgentPresetSettingsKey =
   | 'sectionIntro'
   | 'setDefault'
   | 'view'
-  | 'presetStandardName'
-  | 'presetStandardDescription'
-  | 'presetPtcName'
-  | 'presetPtcDescription'
-  | 'presetMinimalName'
-  | 'presetMinimalDescription'
-  | 'presetCordisName'
-  | 'presetCordisDescription'
   | 'inUse'
   | 'noDescription'
   | 'brokenBadge'
@@ -59,6 +53,18 @@ export const en: Record<AgentPresetSettingsKey, string> = {
   presetCordisName: 'Creator mode',
   presetCordisDescription:
     'Customize DSH through conversation. Let the agent write plugins that add features or UI, or combine tools and prompts to create your own mode.',
+  presetStrataName: 'StrataHarness',
+  presetStrataDescription:
+    'Unified StrataHarness workflow (Step 0 classification, stop-gates, all 41 engineering/analysis skills, subagents, terminal, and Office documents).',
+  presetStrataDeveloperName: 'Strata Developer',
+  presetStrataDeveloperDescription:
+    'Engineering mode for the 6-stage Development cycle (Interview → Spec → Tickets → Implementation → Review → Close) with subagents, terminal, and TDD skills.',
+  presetStrataAnalystName: 'Strata Analyst',
+  presetStrataAnalystDescription:
+    'Systems and business analysis, discovery interviews, specifications, ADRs, questionnaires, web research, and Office deliverables (Word, Excel, PPTX, PDF).',
+  presetStrataDesignerName: 'Strata Designer',
+  presetStrataDesignerDescription:
+    'UI/UX discovery interviews, user flows, design tokens, and interactive HTML/CSS/SVG prototypes with live preview in the right sidebar.',
 
   inUse: 'New task default',
 
@@ -100,6 +106,14 @@ export const zh: Record<AgentPresetSettingsKey, string> = {
   presetMinimalDescription: 'Agent 使用终端和图片读取工具，并支持上下文压缩，适合测试和对比其基础表现。',
   presetCordisName: '创造模式',
   presetCordisDescription: '用对话定制 DSH：让 Agent 编写插件，添加新功能或界面；也能组合工具和提示词，创建自己的模式。',
+  presetStrataName: 'StrataHarness',
+  presetStrataDescription: '统一 StrataHarness 工作流（Step 0 分类、停靠门禁、全部 41 项工程与分析技能、子智能体、终端与 Office 文档）。',
+  presetStrataDeveloperName: 'Strata Developer',
+  presetStrataDeveloperDescription: '面向 6 阶段开发周期（访谈 → 规格 → 任务单 → 实现 → 评审 → 收尾）的工程模式，配备子智能体、终端与 TDD 技能。',
+  presetStrataAnalystName: 'Strata Analyst',
+  presetStrataAnalystDescription: '系统与业务分析、需求访谈、规格说明、ADR、调研问卷、网页检索与 Office 交付物（Word、Excel、PPTX、PDF）。',
+  presetStrataDesignerName: 'Strata Designer',
+  presetStrataDesignerDescription: 'UI/UX 需求访谈、用户流程、设计令牌与可在右侧栏实时预览的交互式 HTML/CSS/SVG 原型。',
 
   inUse: '新任务默认',
 

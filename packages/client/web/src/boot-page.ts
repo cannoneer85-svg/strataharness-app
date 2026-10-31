@@ -34,10 +34,11 @@ export class BootPage {
     this.root = div(css.boot)
     this.root.dataset.dshBoot = ''
     this.card = div(css.card)
-    this.wordmark = div(css.wordmark, 'HARNESS')
+    // strata(override): StrataHarness wordmark and Russian boot status
+    this.wordmark = div(css.wordmark, 'STRATA HARNESS')
     this.spinner = div(css.spinner)
     this.spinner.dataset.dshBootSpinner = ''
-    this.hint = div(css.hint, 'Loading plugins…')
+    this.hint = div(css.hint, 'Загрузка плагинов…')
     this.card.append(this.wordmark, this.spinner, this.hint)
     this.root.append(this.card)
     container.append(this.root)
@@ -89,7 +90,8 @@ export class BootPage {
       return
     }
     const report = div(css.failed)
-    report.append(div(css.failedTitle, 'Failed to load plugins'))
+    // strata(override): Russian boot failure heading
+    report.append(div(css.failedTitle, 'Не удалось загрузить плагины'))
     for (const id of failed) report.append(div(css.failedItem, id))
     if (this.failure !== undefined) report.append(div(css.failedItem, this.failure))
     this.card.replaceChildren(this.wordmark, report)

@@ -85,7 +85,8 @@ const rendererConsole = new RendererConsoleTail()
 app.setAppLogsPath()
 
 function currentDesktopLocale(): ReturnType<typeof resolveDesktopLocale> {
-  return resolveDesktopLocale(windowsLanguage ?? app.getLocale())
+  // strata(override): default pre-Host shell and fatal recovery copy to Russian before locale.preference loads
+  return resolveDesktopLocale(windowsLanguage ?? 'ru')
 }
 /** Quit without the task confirmation; the caller has already decided the application must stop. */
 function quitWithoutConfirmation(): void {
@@ -951,7 +952,7 @@ async function main(): Promise<void> {
   const platformMenus = (): MenuItemConstructorOptions[] => darwin
     ? [shortcuts.fileMenu(currentDesktopLocale().messages), { role: 'editMenu' }, { role: 'windowMenu' }]
     : [{ role: 'editMenu' }]
-  const hideCommands: MenuItemConstructorOptions[] = darwin
+  const hideCommands = (): MenuItemConstructorOptions[] => darwin
     ? [{ role: 'hide', label: currentDesktopLocale().messages.hideApplication },
       { role: 'hideOthers', label: currentDesktopLocale().messages.hideOtherApplications },
       { role: 'unhide', label: currentDesktopLocale().messages.showAllApplications }, { type: 'separator' }]
@@ -977,7 +978,7 @@ async function main(): Promise<void> {
       } },
     ] : [],
     { type: 'separator' },
-    ...hideCommands,
+    ...hideCommands(),
     { role: 'quit', ...(darwin ? { label: currentDesktopLocale().messages.quitApplication }
       : process.platform === 'win32' ? { label: currentDesktopLocale().messages.exitApplication } : {}) },
   ]

@@ -395,4 +395,149 @@ describe('LocaleRuntime', () => {
       { id: 'en', label: 'English' },
     ])
   })
+
+  it('selects configured defaultLocale over navigator.languages and orders locales by localeOrder', () => {
+    stubLanguages('zh-CN', 'en-US')
+    const ctx = new Context()
+    const svc = new LocaleRuntime(ctx, undefined, undefined, {
+      defaultLocale: 'ru',
+      localeOrder: ['ru', 'RU', 'en', 'zh'],
+    })
+    // Before @strata/locale-ru registers 'ru', falls back cleanly to FALLBACK_LOCALE ('en').
+    expect(svc.getLocale().active).toBe('en')
+    expect(svc.getLocale().locales.map(locale => locale.label)).toEqual(['English', '中文'])
+
+    const disposeRu = svc.addLanguage({ id: 'ru', label: 'Русский', fallback: 'en' })
+    expect(svc.getLocale().active).toBe('ru')
+    expect(svc.getLocale().locales.map(locale => locale.label)).toEqual(['Русский', 'English', '中文'])
+
+    // Extra language packs not listed in localeOrder trail in registration order.
+    const disposeJa = svc.addLanguage({ id: 'ja', label: '日本語', fallback: 'en' })
+    expect(svc.getLocale().locales.map(locale => locale.id)).toEqual(['ru', 'en', 'zh', 'ja'])
+    disposeJa()
+    disposeRu()
+    expect(svc.getLocale().active).toBe('en')
+  })
+
+  it('normalizes regional subtags in preference and degrades unknown or unloaded locales without mutating preference', () => {
+    stubLanguages('zh-CN')
+    const host = stubConfigForm<LocaleSettings>()
+    const ctx = new Context()
+    const svc = new LocaleRuntime(ctx, host.scope, undefined, {
+      defaultLocale: 'ru',
+      localeOrder: ['ru', 'en', 'zh'],
+    })
+    const disposeRu = svc.addLanguage({ id: 'ru', label: 'Русский', fallback: 'en' })
+    svc.register('ns', 'en', { title: 'Settings' })
+    svc.register('ns', 'ru', { title: 'Настройки' })
+
+    host.publish({ status: 'ready', value: { preference: 'ru-RU' }, revision: 1, writable: true })
+    expect(svc.getLocale().active).toBe('ru')
+    expect(host.scope.getSnapshot().value).toEqual({ preference: 'ru-RU' })
+
+    host.publish({ status: 'ready', value: { preference: 'en-US' }, revision: 2, writable: true })
+    expect(svc.getLocale().active).toBe('en')
+    expect(host.scope.getSnapshot().value).toEqual({ preference: 'en-US' })
+
+    host.publish({ status: 'ready', value: { preference: 'zh-CN' }, revision: 3, writable: true })
+    expect(svc.getLocale().active).toBe('zh')
+    expect(host.scope.getSnapshot().value).toEqual({ preference: 'zh-CN' })
+
+    // Regional preference matching a regional registration when no bare primary exists.
+    const disposePt = svc.addLanguage({ id: 'pt-BR', label: 'Português (Brasil)', fallback: 'en' })
+    host.publish({ status: 'ready', value: { preference: 'pt-PT' }, revision: 4, writable: true })
+    expect(svc.getLocale().active).toBe('pt-BR')
+    disposePt()
+
+    // Unknown preference tag ('fr') degrades to defaultLocale ('ru') without throwing or writing back.
+    host.publish({ status: 'ready', value: { preference: 'fr' }, revision: 5, writable: true })
+    expect(svc.getLocale().active).toBe('ru')
+    expect(host.scope.getSnapshot().value).toEqual({ preference: 'fr' })
+    expect(host.set).not.toHaveBeenCalled()
+
+    // Unloading @strata/locale-ru while preference is 'ru' degrades display to 'en' without raw keys or mutation.
+    host.publish({ status: 'ready', value: { preference: 'ru' }, revision: 6, writable: true })
+    expect(svc.getLocale().active).toBe('ru')
+    expect(svc.bind('ns')('title')).toBe('Настройки')
+    disposeRu()
+    expect(svc.getLocale().active).toBe('en')
+    expect(svc.bind('ns')('title')).toBe('Settings')
+    expect(host.scope.getSnapshot().value).toEqual({ preference: 'ru' })
+    expect(host.set).not.toHaveBeenCalled()
+  })
+
+  it('formats compact ICU plural expressions for Russian numerals while preserving {param} compatibility', () => {
+    const ctx = new Context()
+    const svc = new LocaleRuntime(ctx, undefined, undefined, { defaultLocale: 'ru', localeOrder: ['ru', 'en', 'zh'] })
+    svc.addLanguage({ id: 'ru', label: 'Русский', fallback: 'en' })
+    svc.register('ns', 'ru', {
+      files: '{count, plural, =0 {Нет файлов в {folder}} one {# файл в {folder}} few {# файла в {folder}} many {# файлов в {folder}} other {# файлов в {folder}}}',
+      numericForms: '{count, plural, one {# элемент} few {# элемента} many {# элементов} other {# элемента}}',
+      nestedOnlyOther: '{count, plural, other {Всего: # ({label})} }',
+      malformedHeader: '{count, select, one {1} other {2}}',
+      malformedBody: '{count, plural, invalid {1}}',
+      malformedEmptyBody: '{count, plural, }',
+      malformedMissingBrace: '{count, plural, one 1}',
+      malformedNoOther: '{count, plural, =99 {девяносто девять}}',
+      unclosed: 'Префикс {count, plural, one {# файл}',
+      plain: 'Простой текст без фигурных скобок',
+    })
+    svc.register('ns', 'en', {
+      enOnlyPlural: '{count, plural, one {# item} other {# items}}',
+    })
+    const t = svc.bind('ns')
+
+    expect(t('numericForms', { count: 1 })).toBe('1 элемент')
+    expect(t('numericForms', { count: 2 })).toBe('2 элемента')
+    expect(t('numericForms', { count: 5 })).toBe('5 элементов')
+    expect(t('numericForms', { count: 11 })).toBe('11 элементов')
+    expect(t('numericForms', { count: 21 })).toBe('21 элемент')
+    expect(t('numericForms', { count: '22' })).toBe('22 элемента')
+    expect(t('numericForms', { count: 1.5 })).toBe('1.5 элемента')
+
+    // Exact =0 selector + nested {folder} containing '#' (must not corrupt '#' inside substituted parameter!).
+    expect(t('files', { count: 0, folder: 'C# project' })).toBe('Нет файлов в C# project')
+    expect(t('files', { count: 1, folder: 'C# project' })).toBe('1 файл в C# project')
+    expect(t('files', { count: 3, folder: 'src' })).toBe('3 файла в src')
+    expect(t('files', { count: 14, folder: 'src' })).toBe('14 файлов в src')
+    expect(t('nestedOnlyOther', { count: 7, label: 'F#' })).toBe('Всего: 7 (F#)')
+    expect(t('plain', { count: 1 })).toBe('Простой текст без фигурных скобок')
+
+    // Fallback dictionary entry uses the fallback entry's own locale plural rules ('en', where 21 -> 'other').
+    expect(t('enOnlyPlural', { count: 21 })).toBe('21 items')
+
+    // Missing, non-numeric, or malformed plural blocks stay verbatim without throwing.
+    expect(t('numericForms', {})).toBe('{count, plural, one {# элемент} few {# элемента} many {# элементов} other {# элемента}}')
+    expect(t('numericForms', { count: null })).toBe('{count, plural, one {# элемент} few {# элемента} many {# элементов} other {# элемента}}')
+    expect(t('numericForms', { count: 'not-a-number' })).toBe('{count, plural, one {# элемент} few {# элемента} many {# элементов} other {# элемента}}')
+    expect(t('numericForms', { count: '   ' })).toBe('{count, plural, one {# элемент} few {# элемента} many {# элементов} other {# элемента}}')
+    expect(t('malformedHeader', { count: 1 })).toBe('{count, select, one {1} other {2}}')
+    expect(t('malformedBody', { count: 1 })).toBe('{count, plural, invalid {1}}')
+    expect(t('malformedEmptyBody', { count: 1 })).toBe('{count, plural, }')
+    expect(t('malformedMissingBrace', { count: 1 })).toBe('{count, plural, one 1}')
+    expect(t('malformedNoOther', { count: 5 })).toBe('{count, plural, =99 {девяносто девять}}')
+    expect(t('unclosed', { count: 1 })).toBe('Префикс {count, plural, one {# файл}')
+    expect(t('missing.{count}', { count: 3 })).toBe('missing.3')
+
+    // Object.prototype keys in dictionary lookup and template placeholders must never leak prototype members.
+    expect(t('toString')).toBe('toString')
+    expect(t('constructor')).toBe('constructor')
+    svc.register('protoNs', 'ru', {
+      protoParam: 'Значение: {toString} / {constructor}',
+      protoPlural: '{constructor, plural, one {# элемент} other {# элементов}}',
+    })
+    const tProto = svc.bind('protoNs')
+    expect(tProto('protoParam', {})).toBe('Значение: {toString} / {constructor}')
+    expect(tProto('protoPlural', {})).toBe('{constructor, plural, one {# элемент} other {# элементов}}')
+
+    // Synthetic BCP 47-style locale tags accepted by LOCALE_ID_PATTERN that fail Intl.PluralRules
+    // canonicalization degrade cleanly to English plural rules instead of throwing RangeError.
+    svc.addLanguage({ id: 'ru-x', label: 'Synthetic', fallback: 'en' })
+    svc.register('syntheticNs', 'ru-x', {
+      items: '{count, plural, one {# item} other {# items}}',
+    })
+    svc.setLocale('ru-x')
+    expect(svc.bind('syntheticNs')('items', { count: 1 })).toBe('1 item')
+    expect(svc.bind('syntheticNs')('items', { count: 2 })).toBe('2 items')
+  })
 })

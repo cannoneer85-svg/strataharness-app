@@ -25,21 +25,21 @@ Use `dsh-client-locale` to switch the web GUI between the shipped English and Ch
 <a id="use-this-package"></a>
 ## Use this package
 
-Use it wherever the web GUI needs a language switch or translated copy: the shipped settings row covers users, and plugin authors register their own dictionaries. Nothing needs configuration to mount — the package activates with the client tree.
+Use it wherever the web GUI needs a language switch or translated copy: the shipped settings row covers users, and plugin authors register their own dictionaries. Mounting requires no configuration, while deployments may optionally configure `defaultLocale` and `localeOrder` on the Host plugin.
 
 ### Choosing a language
 
-Open Settings → General and select a registered language. The active locale is applied immediately: the UI copy switches, `<html lang>` points at the external id or built-in document tag, and the choice is written to the durable settings section. A browser without an explicit Host preference selects the first registered language that matches `navigator` by full tag and then primary subtag, falling back to English. A stored external locale waits for its definition to register instead of becoming active while unavailable.
+Open Settings → General and select a registered language. The active locale is applied immediately: the UI copy switches, `<html lang>` points at the external id or built-in document tag, and the choice is written to the durable settings section. Without an explicit Host preference, `LocaleRuntime` selects a configured `defaultLocale` once registered, or otherwise the first registered language matching `navigator` by full tag and primary subtag, falling back to English; `localeOrder` pins selector display order. A requested external locale waits for its definition to register before syncing `<html lang>` or `__DSH_LOCALE__.onChange`.
 
 Native shells may provide `__DSH_LOCALE__` with an asynchronous `read()` and an `onChange(locale)` callback. Initialization supplies the current Host preference and ordered OS languages before the Client mounts. Automatic selection stays provisional; only Settings selections write `locale.preference`. A fresh read on each page load prevents a stale preload preference after reload. Ordinary browsers keep navigator-based detection and their existing settings-scope policy.
 
 ### Registering a dictionary
 
-Call `ctx.locale.register(ns, { zh, en })` with a namespace merged into `LocaleNamespaceMap`; the compiler checks every key against the namespace's typed key union and requires both shipped locales. Consumers translate through `ctx.locale.bind(ns)` or the framework-injected `t` seat. A dictionary registered after the UI is already mounted is picked up without a remount.
+Call `ctx.locale.register(ns, { zh, en })` with a namespace merged into `LocaleNamespaceMap`; the compiler checks every key against the namespace's typed key union and requires both shipped locales. Consumers translate through `ctx.locale.bind(ns)` or the framework-injected `t` seat, supporting `{name}` placeholders and compact ICU `{count, plural, ...}` clauses evaluated with `Intl.PluralRules` for the matched dictionary entry's locale. A dictionary registered after the UI is already mounted is picked up without a remount.
 
 ### Resolving package text
 
-Use `ctx.locale.resolveText(text)` for [`LocalizedText`](../../util/package-manifest/README.md), such as installed plugin titles and descriptions. Literal strings are returned unchanged. Translation maps use lowercase language ids, require an `en` fallback, and follow the active language's declared fallback chain. They do not consult or register namespace dictionaries.
+Use `ctx.locale.resolveText(text)` for [`LocalizedText`](../../util/package-manifest/README.md), such as installed plugin titles and descriptions. Literal strings are returned unchanged. Translation maps use lowercase language ids, require an `en` fallback, and walk the active language's declared fallback chain: for each non-English locale, an explicit `text[locale]` entry wins over catalogs registered via `ctx.locale.registerTextCatalog(locale, entries)` (keyed by `text.en`) before falling back to `text.en`. They do not consult or register namespace dictionaries.
 
 ### Registering a language pack
 
@@ -67,7 +67,7 @@ An external id is a non-empty ASCII BCP 47-style tag. Its fallback must already 
 
 ### What the Host half does
 
-Every authenticated browser persists the preference through the Host settings service under the shared [settings scope policy](../ui-settings/README.md).
+Every authenticated browser persists the preference through the Host settings service under the shared [settings scope policy](../ui-settings/README.md). When `defaultLocale` or `localeOrder` is configured on the Host plugin, it also injects `__DSH_LOCALE_CONFIG__` into served HTML pages through `webserver/index-inject`.
 
 -----
 
@@ -97,9 +97,10 @@ The typed object form requires complete dictionaries for both built-in locales. 
 
 | File | Role |
 |---|---|
-| [`src/client/index.ts`](src/client/index.ts) | `LocaleRuntime`, dictionary registry, Language row registration, `locale/change` event |
-| [`src/index.ts`](src/index.ts) | Node half: registers the `locale` settings namespace |
-| [`src/locale-settings.ts`](src/locale-settings.ts) | The durable schema for `locale.preference` |
+| [`src/client/index.ts`](src/client/index.ts) | `LocaleRuntime`, dictionary and text-catalog registries, Language row registration, `locale/change` event |
+| [`src/client/interpolate.ts`](src/client/interpolate.ts) | `{param}` placeholder substitution and `Intl.PluralRules` ICU plural formatting |
+| [`src/index.ts`](src/index.ts) | Node half: configures `locale` settings presentation and projects `Config` (`defaultLocale`, `localeOrder`) |
+| [`src/locale-settings.ts`](src/locale-settings.ts) | Schemas for `locale.preference` and deployment locale configuration |
 | [`src/locales/`](src/locales/) | The shipped `zh`/`en` dictionaries |
 
 </details>
@@ -135,7 +136,7 @@ None; this package neither assembles nor sends a provider request.
 These limits define where localization is incomplete or frozen at registration time. They are current package constraints, not a task backlog.
 
 - **Registry-held text reads its translation once** — copy captured at registration time outside the slot render path (e.g. the `/model` command description in the command registry) keeps the language it was registered under until re-registration; slot-rendered copy follows switches live.
-- **Language packs own language-specific behavior** — the registry supplies selection, persistence, browser matching, key fallback, and `<html lang>`; it does not add plural rules or bidirectional layout.
+- **Language packs own bidirectional and layout behavior** — the registry supplies selection, persistence, browser matching, key and `LocalizedText` catalog fallback, `Intl.PluralRules` plural clauses, and `<html lang>`; it does not add bidirectional layout or morphological gender agreement.
 
 <a id="dev-note"></a>
 ### Dev Note

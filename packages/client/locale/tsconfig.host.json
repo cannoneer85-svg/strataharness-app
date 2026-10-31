@@ -17,6 +17,9 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../host/webserver"
+    },
+    {
       "path": "../../settings/settings"
     }
   ]

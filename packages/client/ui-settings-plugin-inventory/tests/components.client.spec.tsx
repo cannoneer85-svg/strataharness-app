@@ -661,3 +661,54 @@ it('shows current-page sync errors and retries without re-reading Host inventory
   act(() => { sync.set({ syncing: false, failures: [] }) })
   expect(screen.queryByRole('alert')).toBeNull()
 })
+
+it('resolves plain-string built-in plugin titles and descriptions through registered LocalizedText catalogs while keeping user literals intact', async () => {
+  const { locale, pageProps } = localizedProps(async () => ({
+    entries: [
+      {
+        entryId: 'include:mcp' as PluginEntryId,
+        moduleName: '@deepseek-ai/dsh-mcp-client',
+        enabled: true,
+        fiberPhase: 'active',
+        meta: {
+          title: '@deepseek-ai/dsh-mcp-client',
+          description: 'MCP client bridge: connects to MCP servers and registers their tools on ctx.tools',
+        },
+      },
+      {
+        entryId: 'include:strata' as PluginEntryId,
+        moduleName: '@strata/custom-entry',
+        enabled: true,
+        fiberPhase: 'active',
+      },
+      {
+        entryId: 'include:custom' as PluginEntryId,
+        moduleName: 'acme-custom-plugin',
+        enabled: true,
+        fiberPhase: 'active',
+        meta: {
+          title: 'acme-custom-plugin',
+          description: 'MCP client bridge: connects to MCP servers and registers their tools on ctx.tools',
+        },
+      },
+    ],
+  }))
+  locale.addLanguage({ id: 'ru', label: 'Русский', fallback: 'en' })
+  locale.registerTextCatalog('ru', {
+    '@deepseek-ai/dsh-mcp-client': 'Клиент MCP',
+    '@strata/custom-entry': 'Встроенный модуль Strata',
+    'MCP client bridge: connects to MCP servers and registers their tools on ctx.tools': 'Подключается к серверам MCP.',
+  })
+  locale.setLocale('ru')
+
+  render(<PluginInventorySettingsTab {...pageProps} />)
+  await screen.findByRole('searchbox')
+  fireEvent.click(screen.getByRole('button', { name: (name: string) => name.startsWith(en.globalTitle) }))
+
+  const mcpCard = screen.getByRole('button', { name: 'Клиент MCP, include:mcp, Enabled' })
+  expect(document.getElementById(mcpCard.getAttribute('aria-describedby')!)?.textContent).toBe('Подключается к серверам MCP.')
+  expect(screen.getByRole('button', { name: 'Встроенный модуль Strata, include:strata, Enabled' })).toBeTruthy()
+  const customCard = screen.getByRole('button', { name: 'acme-custom-plugin, include:custom, Enabled' })
+  expect(document.getElementById(customCard.getAttribute('aria-describedby')!)?.textContent)
+    .toBe('MCP client bridge: connects to MCP servers and registers their tools on ctx.tools')
+})

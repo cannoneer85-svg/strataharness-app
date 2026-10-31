@@ -14,8 +14,8 @@ describe('BootPage', () => {
   it('draws the loading skeleton before any plugin state arrives', () => {
     const { el } = mount()
     expect(el.firstElementChild?.getAttribute('data-dsh-boot')).toBe('')
-    expect(el.textContent).toContain('HARNESS')
-    expect(el.textContent).toContain('Loading plugins…')
+    expect(el.textContent).toContain('STRATA HARNESS')
+    expect(el.textContent).toContain('Загрузка плагинов…')
   })
 
   it('keeps loading while entries are active or loading', () => {
@@ -29,8 +29,8 @@ describe('BootPage', () => {
     expect(el.querySelector('[data-dsh-boot-spinner]')).toBe(spinner)
     page.setState('b', 'active')
     expect(spinner?.style.getPropertyValue('--dsh-boot-arc')).toBe('288deg')
-    expect(el.textContent).toContain('Loading plugins…')
-    expect(el.textContent).not.toContain('Failed to load plugins')
+    expect(el.textContent).toContain('Загрузка плагинов…')
+    expect(el.textContent).not.toContain('Не удалось загрузить плагины')
   })
 
   it('lists failed entries', () => {
@@ -38,10 +38,11 @@ describe('BootPage', () => {
     page.setState('@deepseek-ai/dsh-client-ui-layout', 'failed')
     page.setState('ok', 'active')
     page.setState('@deepseek-ai/dsh-client-ui-tool', 'failed')
+    expect(el.textContent).toContain('Не удалось загрузить плагины')
     expect(el.textContent).toContain('@deepseek-ai/dsh-client-ui-layout')
     expect(el.textContent).toContain('@deepseek-ai/dsh-client-ui-tool')
     expect(el.textContent).not.toContain('ok')
-    expect(el.textContent).not.toContain('Loading plugins…')
+    expect(el.textContent).not.toContain('Загрузка плагинов…')
   })
 
   it('shows the complete sweep report', () => {
@@ -49,8 +50,9 @@ describe('BootPage', () => {
     const report = 'web boot: 1 entry did not activate\nx: pending (waiting for service: y)'
     page.fail(report)
     page.setState('a', 'active')
+    expect(el.textContent).toContain('Не удалось загрузить плагины')
     expect(el.textContent).toContain(report)
-    expect(el.textContent).not.toContain('Loading plugins…')
+    expect(el.textContent).not.toContain('Загрузка плагинов…')
   })
 
   it('detaches on disposal', () => {

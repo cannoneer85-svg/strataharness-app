@@ -191,6 +191,8 @@ export async function approveEscalation<A, C>(request: EscalationRequest, approv
     callId: approval.callId,
     reason: `escalate sandbox to ${mode}: ${justification}`,
     displayReason: {
+      // strata(override): Russian sandbox escalation prompt
+      ru: `Разрешить эту операцию с правами ${mode}: ${justification}`,
       en: `Allow this operation with ${mode} permissions: ${justification}`,
       zh: `允许本次操作使用 ${mode} 权限：${justification}`,
     },

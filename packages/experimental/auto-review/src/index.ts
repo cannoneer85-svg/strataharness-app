@@ -657,9 +657,18 @@ function askUser(exec: ToolExecution, reason?: string): PreToolDecision {
   return {
     kind: 'ask',
     reason: reason === undefined ? denial : `${denial}: ${reason}`,
+    // strata(override): Russian auto-review denial prompt
     displayReason: reason === undefined
-      ? { en: 'Auto review denied this call.', zh: 'Auto review 拒绝了此调用。' }
-      : { en: `Auto review denied this call: ${reason}`, zh: `Auto review 拒绝了此调用：${reason}` },
+      ? {
+        ru: 'Автопроверка отклонила этот вызов.',
+        en: 'Auto review denied this call.',
+        zh: 'Auto review 拒绝了此调用。',
+      }
+      : {
+        ru: `Автопроверка отклонила этот вызов: ${reason}`,
+        en: `Auto review denied this call: ${reason}`,
+        zh: `Auto review 拒绝了此调用：${reason}`,
+      },
   }
 }
 

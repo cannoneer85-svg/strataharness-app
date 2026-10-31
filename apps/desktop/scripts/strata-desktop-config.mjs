@@ -44,7 +44,7 @@ export const STRATA_MACOS_MICROPHONE_USAGE =
   'StrataHarness uses your microphone to transcribe speech into message drafts.'
 
 /** NSIS installer language identifiers compiled into the Windows installer. */
-export const STRATA_NSIS_INSTALLER_LANGUAGES = Object.freeze(['en_US', 'ru_RU', 'zh_CN'])
+export const STRATA_NSIS_INSTALLER_LANGUAGES = Object.freeze(['ru_RU', 'en_US', 'zh_CN'])
 
 /** Environment variable supplying the production auto-update origin when self-hosted updates are enabled. */
 export const STRATA_PRODUCTION_UPDATE_ORIGIN_ENV = 'DOWNLOAD_PROD_ORIGIN'

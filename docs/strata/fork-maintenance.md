@@ -7,11 +7,13 @@
 - Доменный глоссарий: [`.agents/CONTEXT.md`](../../.agents/CONTEXT.md)
 - Спецификация инфраструктуры релизов и `Soft-Fork`: [`docs/specs/0001-strata-ci-release-and-fork-sync-spec.md`](../specs/0001-strata-ci-release-and-fork-sync-spec.md)
 - Спецификация автогенерации списка изменений релиза и скилла выпуска версий: [`docs/specs/0002-strata-release-changelog-and-skill-spec.md`](../specs/0002-strata-release-changelog-and-skill-spec.md)
+- Спецификация полной русской локализации: [`docs/specs/0003-russian-localization-spec.md`](../specs/0003-russian-localization-spec.md)
 - Ручной интерактивный скилл выпуска релиза: [`.agents/skills/strata-release/SKILL.md`](../../.agents/skills/strata-release/SKILL.md)
 - Архитектурные решения (Agent Notes):
   - [Dual-track product versioning for StrataHarness Desktop](../../.agents/notes/implemented/architecture/2026-10-29-strata-dual-track-product-versioning.md)
   - [Isolate upstream GitHub Actions workflows via archive relocation](../../.agents/notes/implemented/process/2026-10-29-upstream-workflow-relocation-isolation.md)
   - [StrataHarness release distribution, signing modes, and upstream release radar](../../.agents/notes/implemented/process/2026-10-29-strata-release-distribution-and-upstream-radar.md)
+  - [Soft-Fork Russian language pack isolation and default-locale contract](../../.agents/notes/implemented/architecture/2026-10-31-strata-russian-localization-pack.md)
 
 ---
 
@@ -47,7 +49,7 @@ pnpm run strata:version 1.2.0
 pnpm run strata:version minor -- --upstream-base dsh-v0.3.0
 ```
 
-Команда `strata:version` синхронно обновляет [`strata-product.json`](../../strata-product.json), [`packages/strata/product-bundle/package.json`](../../packages/strata/product-bundle/package.json) и [`packages/strata/ui-brand/package.json`](../../packages/strata/ui-brand/package.json).
+Команда `strata:version` синхронно обновляет [`strata-product.json`](../../strata-product.json), [`packages/strata/locale-ru/package.json`](../../packages/strata/locale-ru/package.json), [`packages/strata/product-bundle/package.json`](../../packages/strata/product-bundle/package.json) и [`packages/strata/ui-brand/package.json`](../../packages/strata/ui-brand/package.json).
 
 ---
 
@@ -123,7 +125,7 @@ pnpm run strata:prepare-upstream-sync dsh-vX.Y.Z
 git merge --no-commit --no-ff dsh-vX.Y.Z
 ```
 
-При разрешении конфликтов и проверке индекса соблюдайте три инварианта `Soft-Fork`:
+При разрешении конфликтов и проверке индекса соблюдайте четыре инварианта `Soft-Fork`:
 
 1. **Апстримные воркфлоу GitHub Actions и Dependabot:** двадцать пять базовых воркфлоу и конфигурация `.github/dependabot.yml` перенесены побайтово через `git mv` в `.github/upstream-workflows/`, поэтому Git автоматически применяет правки апстрима к перенесённым файлам, а плановые обновления версий `Dependabot` (`version updates`) отключены в `Soft-Fork` (в настройках GitHub-репозитория флаг `Dependabot security updates` также должен оставаться выключенным). Однако если апстрим в новом релизе **добавил совершенно новый файл** `.github/workflows/<new-upstream>.yml` (или повторно ввёл `.github/dependabot.{yml,yaml}`), немедленно перенесите его побайтово в архивный каталог без флага `-f` (если апстрим когда-либо добавит одноимённый воркфлоу `.github/workflows/dependabot.yml`, перенесите его как `.github/upstream-workflows/workflow-dependabot.yml`, чтобы не перезаписать архив конфигурации `Dependabot`):
    ```sh
@@ -132,6 +134,7 @@ git merge --no-commit --no-ff dsh-vX.Y.Z
    В `.github/workflows/` разрешены исключительно файлы с префиксом `strata-*.yml`, а наличие активного `.github/dependabot.{yml,yaml}` или удаление архивного `.github/upstream-workflows/dependabot.yml` блокируется гейтом `pnpm run strata:audit-overrides`.
 2. **Трёхуровневая изоляция данных и идентичности:** убедитесь, что `apps/desktop/src/paths.ts` по-прежнему указывает на `.strataharness`, `apps/desktop/scripts/strata-desktop-config.mjs` сохраняет `com.nikl.strataharness`, `@strata/desktop` и схему `strata://`, а `DOWNLOAD_PROD_ORIGIN` не откатился на `download.deepseek.com`.
 3. **Версии пакетов ядра:** примите новые версии `0.x.y` из апстрима во всех `@deepseek-ai/dsh-*` и корневом `package.json` без ручных правок.
+4. **Синхронизация 100%-й русской локализации (`@strata/locale-ru` и Electron Shell):** если апстрим добавил или переименовал ключи в `LocaleNamespaceMap`, системные строки в `apps/desktop/src/locale.ts` либо метаданные встроенных плагинов (`locale/en.json` и `OFFICIAL_ON_DEMAND_CATALOG`), проверка типов `LocaleDictOf<N>` и гейт паритета [`scripts/strata/russian-localization-parity.spec.ts`](../../scripts/strata/russian-localization-parity.spec.ts) укажут точный список недостающих или изменившихся ключей — обновите соответствующие словари в `packages/strata/locale-ru/src/client/locales/*` (включая `plugin-metadata.ts`) и `apps/desktop/src/locale.ts` до фиксации коммита слияния.
 
 ### Шаг 4. Прогон квалификационных и сборочных гейтов
 
@@ -140,6 +143,7 @@ git merge --no-commit --no-ff dsh-vX.Y.Z
 ```sh
 pnpm install
 pnpm run strata:audit-overrides
+pnpm exec vitest run scripts/strata/russian-localization-parity.spec.ts
 pnpm run constraints
 pnpm run build
 pnpm --filter @deepseek-ai/dsh-desktop run check:package
@@ -216,7 +220,7 @@ pnpm run strata:changelog -- --version 1.0.1 --base strata-v1.0.0 --target-ref H
    ```
 2. Зафиксируйте подготовку релиза одним коммитом (если менялись `strata-product.json`, `packages/strata/*/package.json` или `docs/strata/releases/v<version>.md`), создайте аннотированный тег `strata-v<version>` и атомарно отправьте ветку вместе с базовым тегом движка `<upstreamBaseTag>` (из `strata-product.json`) и релизным тегом в `origin`:
    ```sh
-   git add -- strata-product.json packages/strata/product-bundle/package.json packages/strata/ui-brand/package.json docs/strata/releases/v1.1.0.md
+   git add -- strata-product.json packages/strata/locale-ru/package.json packages/strata/product-bundle/package.json packages/strata/ui-brand/package.json docs/strata/releases/v1.1.0.md
    git commit -m "chore(strata): prepare release v1.1.0"
    git tag -a strata-v1.1.0 -m "StrataHarness v1.1.0"
    git push --atomic origin main refs/tags/dsh-v0.2.1-rc.4:refs/tags/dsh-v0.2.1-rc.4 refs/tags/strata-v1.1.0:refs/tags/strata-v1.1.0

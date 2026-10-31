@@ -81,10 +81,35 @@ function populateCompliantFilesystem(repoRoot: string): void {
     upstreamBaseTag: 'dsh-v0.2.1-rc.4',
     upstreamRepository: 'https://github.com/deepseek-ai/deepseek-harness.git',
   })
+  writeJson(repoRoot, 'packages/strata/locale-ru/package.json', {
+    name: '@strata/locale-ru',
+    version: '1.0.0',
+  })
   writeJson(repoRoot, 'packages/strata/product-bundle/package.json', {
     name: '@strata/product-bundle',
     version: '1.0.0',
+    dependencies: {
+      '@strata/locale-ru': 'workspace:~',
+      '@strata/ui-brand': 'workspace:~',
+    },
   })
+  writeText(
+    repoRoot,
+    'packages/strata/product-bundle/cordis.patch.yml',
+    [
+      '- id: locale',
+      '  config:',
+      '    defaultLocale: ru',
+      '    localeOrder:',
+      '      - ru',
+      '      - en',
+      '      - zh',
+      '- insert:',
+      '    - id: strata-locale-ru',
+      "      name: '@strata/locale-ru'",
+      '',
+    ].join('\n'),
+  )
   writeJson(repoRoot, 'packages/strata/ui-brand/package.json', {
     name: '@strata/ui-brand',
     version: '1.0.0',
@@ -174,10 +199,35 @@ function createCompliantForkFixture(): string {
     upstreamBaseTag: 'dsh-v0.2.1-rc.4',
     upstreamRepository: 'https://github.com/deepseek-ai/deepseek-harness.git',
   })
+  writeJson(repoRoot, 'packages/strata/locale-ru/package.json', {
+    name: '@strata/locale-ru',
+    version: '1.0.0',
+  })
   writeJson(repoRoot, 'packages/strata/product-bundle/package.json', {
     name: '@strata/product-bundle',
     version: '1.0.0',
+    dependencies: {
+      '@strata/locale-ru': 'workspace:~',
+      '@strata/ui-brand': 'workspace:~',
+    },
   })
+  writeText(
+    repoRoot,
+    'packages/strata/product-bundle/cordis.patch.yml',
+    [
+      '- id: locale',
+      '  config:',
+      '    defaultLocale: ru',
+      '    localeOrder:',
+      '      - ru',
+      '      - en',
+      '      - zh',
+      '- insert:',
+      '    - id: strata-locale-ru',
+      "      name: '@strata/locale-ru'",
+      '',
+    ].join('\n'),
+  )
   writeJson(repoRoot, 'packages/strata/ui-brand/package.json', {
     name: '@strata/ui-brand',
     version: '1.0.0',
@@ -247,6 +297,7 @@ describe('Soft-Fork Operations CLI — status & version', { timeout: 30_000 }, (
     expect(status.overrideCommitCount).toBe(2)
     expect(status.workingTreeClean).toBe(true)
     expect(status.strataPackages).toEqual([
+      { name: '@strata/locale-ru', directory: 'packages/strata/locale-ru', version: '1.0.0' },
       { name: '@strata/product-bundle', directory: 'packages/strata/product-bundle', version: '1.0.0' },
       { name: '@strata/ui-brand', directory: 'packages/strata/ui-brand', version: '1.0.0' },
     ])
@@ -274,6 +325,7 @@ describe('Soft-Fork Operations CLI — status & version', { timeout: 30_000 }, (
     const minorCli = runForkOpsCli(['version', 'minor'], { repoRoot })
     expect(minorCli.exitCode).toBe(0)
     expect(readJsonRecord(repoRoot, 'strata-product.json').productVersion).toBe('1.1.0')
+    expect(readJsonRecord(repoRoot, 'packages/strata/locale-ru/package.json').version).toBe('1.1.0')
     expect(readJsonRecord(repoRoot, 'packages/strata/product-bundle/package.json').version).toBe('1.1.0')
     expect(readJsonRecord(repoRoot, 'packages/strata/ui-brand/package.json').version).toBe('1.1.0')
 
@@ -281,6 +333,7 @@ describe('Soft-Fork Operations CLI — status & version', { timeout: 30_000 }, (
     expect(patchResult.previousVersion).toBe('1.1.0')
     expect(patchResult.productVersion).toBe('1.1.1')
     expect(readJsonRecord(repoRoot, 'strata-product.json').productVersion).toBe('1.1.1')
+    expect(readJsonRecord(repoRoot, 'packages/strata/locale-ru/package.json').version).toBe('1.1.1')
     expect(readJsonRecord(repoRoot, 'packages/strata/product-bundle/package.json').version).toBe('1.1.1')
 
     const explicitCli = runForkOpsCli(['version', '2.0.0', '--upstream-base', 'dsh-v0.3.0'], { repoRoot })
@@ -289,6 +342,7 @@ describe('Soft-Fork Operations CLI — status & version', { timeout: 30_000 }, (
       productVersion: '2.0.0',
       upstreamBaseTag: 'dsh-v0.3.0',
     })
+    expect(readJsonRecord(repoRoot, 'packages/strata/locale-ru/package.json').version).toBe('2.0.0')
     expect(readJsonRecord(repoRoot, 'packages/strata/product-bundle/package.json').version).toBe('2.0.0')
     expect(readJsonRecord(repoRoot, 'packages/strata/ui-brand/package.json').version).toBe('2.0.0')
 
@@ -430,6 +484,50 @@ describe('Soft-Fork Operations CLI — update-methodology & audit-overrides', { 
     const emptySubmoduleReport = auditForkOverrides(repoRoot)
     expect(emptySubmoduleReport.ok).toBe(false)
     expect(emptySubmoduleReport.violations.join('\n')).toMatch(/resources\/strataharness/)
+
+    // (e) Missing, version-drifted, or unwired @strata/locale-ru pack
+    populateCompliantFilesystem(repoRoot)
+    rmSync(join(repoRoot, 'packages/strata/locale-ru/package.json'), { force: true })
+    const missingLocaleRuReport = auditForkOverrides(repoRoot)
+    expect(missingLocaleRuReport.ok).toBe(false)
+    expect(missingLocaleRuReport.violations.join('\n')).toContain('packages/strata/locale-ru/package.json is missing')
+
+    populateCompliantFilesystem(repoRoot)
+    writeJson(repoRoot, 'packages/strata/locale-ru/package.json', {
+      name: '@strata/locale-ru',
+      version: '1.0.8',
+    })
+    const localeRuDriftReport = auditForkOverrides(repoRoot)
+    expect(localeRuDriftReport.ok).toBe(false)
+    expect(localeRuDriftReport.violations.join('\n')).toMatch(/@strata\/locale-ru|1\.0\.8/)
+
+    populateCompliantFilesystem(repoRoot)
+    writeJson(repoRoot, 'packages/strata/product-bundle/package.json', {
+      name: '@strata/product-bundle',
+      version: '1.0.0',
+      dependencies: {
+        '@strata/ui-brand': 'workspace:~',
+      },
+    })
+    writeText(
+      repoRoot,
+      'packages/strata/product-bundle/cordis.patch.yml',
+      [
+        '- id: locale',
+        '  config:',
+        '    defaultLocale: en',
+        '    localeOrder:',
+        '      - en',
+        '      - zh',
+        '',
+      ].join('\n'),
+    )
+    const unwiredLocaleRuReport = auditForkOverrides(repoRoot)
+    expect(unwiredLocaleRuReport.ok).toBe(false)
+    expect(unwiredLocaleRuReport.violations.join('\n')).toContain('must declare "@strata/locale-ru" in dependencies')
+    expect(unwiredLocaleRuReport.violations.join('\n')).toContain('does not insert "@strata/locale-ru"')
+    expect(unwiredLocaleRuReport.violations.join('\n')).toContain('defaultLocale: "ru"')
+    expect(unwiredLocaleRuReport.violations.join('\n')).toContain('localeOrder: ["ru", "en", "zh"]')
   })
 })
 
@@ -552,6 +650,7 @@ describe('Soft-Fork Operations CLI — check-upstream & prepare-upstream-sync', 
     expect(cleanSyncCli.stdout).toContain('git merge --no-commit dsh-v0.3.0')
     expect(cleanSyncCli.stdout).toContain('.github/upstream-workflows/')
     expect(cleanSyncCli.stdout).toContain('strata:audit-overrides')
+    expect(cleanSyncCli.stdout).toContain('russian-localization-parity.spec.ts')
     expect(cleanSyncCli.stdout).toContain('strata:version minor --upstream-base dsh-v0.3.0')
     expect(cleanSyncCli.stdout).toContain('test:updates:local')
   })

@@ -90,7 +90,7 @@ SectionEnd
   await execute(compiler.path, ['/V2', payloadSource], { ...childOptions, env: { ...childOptions.env, ...compiler.env } })
   if (sign) await sign({ path: join(payload, `${productName}.exe`), hash: 'sha256', isNest: false })
   const sourceStrings = await readFile(join(appRoot, 'installer', 'strings.nsh'), 'utf8')
-  for (const language of ['en_US', 'zh_CN']) {
+  for (const language of ['ru_RU', 'en_US', 'zh_CN']) {
     const config = createElectronBuilderConfig()
     if (sign) {
       config.win.forceCodeSigning = true
@@ -99,7 +99,7 @@ SectionEnd
     const languageOutput = join(output, language)
     await mkdir(languageOutput)
     const strings = join(languageOutput, 'strings.nsh')
-    const languageId = language === 'en_US' ? 'ENGLISH' : 'SIMPCHINESE'
+    const languageId = language === 'ru_RU' ? 'RUSSIAN' : language === 'en_US' ? 'ENGLISH' : 'SIMPCHINESE'
     await writeFile(strings, sourceStrings.split('\n').filter((line) =>
       !line.startsWith('LangString ') || line.includes(`\${LANG_${languageId}}`)).join('\n'))
     const include = join(languageOutput, 'include.nsh')

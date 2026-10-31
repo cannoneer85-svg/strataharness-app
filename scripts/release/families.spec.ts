@@ -114,6 +114,7 @@ describe('release families', () => {
     expect(members
       .filter(member => member.directory.startsWith('packages/strata/'))
       .map(member => member.name)).toEqual([
+      '@strata/locale-ru',
       '@strata/product-bundle',
       '@strata/ui-brand',
     ])

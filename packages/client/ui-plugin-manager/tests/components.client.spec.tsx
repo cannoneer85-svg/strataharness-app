@@ -2429,4 +2429,51 @@ describe('on-demand Official bundles', () => {
     expect(within(detail).queryByRole('button', { name: en.uninstallLabel.replace('{name}', title) })).toBeNull()
     expect(detail.querySelector('[data-plugin-rows]')).toBeNull()
   })
+
+  it('resolves plain-string built-in package and row metadata through registered LocalizedText catalogs while keeping user literals verbatim', async () => {
+    const { packageText, rowText } = await import('../src/client/presentation.ts')
+    const ctx = new Context()
+    onTestFinished(async () => { await ctx.fiber.dispose() })
+    const locale = new LocaleRuntime(ctx)
+    locale.addLanguage({ id: 'ru', label: 'Русский', fallback: 'en' })
+    locale.registerTextCatalog('ru', {
+      '@deepseek-ai/dsh-mcp-client': 'Клиент MCP',
+      '@strata/locale-ru': 'Русский языковой пакет',
+      'cordis:group': 'Группа плагинов Cordis',
+      'MCP client bridge: connects to MCP servers and registers their tools on ctx.tools': 'Подключается к серверам MCP.',
+    })
+    locale.setLocale('ru')
+    const resolve = (text: Parameters<LocaleRuntime['resolveText']>[0]) => locale.resolveText(text)
+
+    expect(packageText({
+      name: '@deepseek-ai/dsh-mcp-client',
+      meta: {
+        title: '@deepseek-ai/dsh-mcp-client',
+        description: 'MCP client bridge: connects to MCP servers and registers their tools on ctx.tools',
+      },
+    }, resolve)).toEqual({
+      title: 'Клиент MCP',
+      description: 'Подключается к серверам MCP.',
+      beta: false,
+    })
+    expect(rowText({ moduleName: '@strata/locale-ru' }, resolve)).toEqual({
+      title: 'Русский языковой пакет',
+      description: undefined,
+    })
+    expect(rowText({ moduleName: 'cordis:group' }, resolve)).toEqual({
+      title: 'Группа плагинов Cordis',
+      description: undefined,
+    })
+    expect(packageText({
+      name: 'acme-custom-plugin',
+      meta: {
+        title: 'acme-custom-plugin',
+        description: 'MCP client bridge: connects to MCP servers and registers their tools on ctx.tools',
+      },
+    }, resolve)).toEqual({
+      title: 'acme-custom-plugin',
+      description: 'MCP client bridge: connects to MCP servers and registers their tools on ctx.tools',
+      beta: false,
+    })
+  })
 })

@@ -493,6 +493,30 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-hmr -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-locale -->
+<a id="deepseek-aidsh-client-locale"></a>
+
+## `@deepseek-ai/dsh-client-locale`
+
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/client/locale/src/index.ts:27`](../packages/client/locale/src/index.ts)
+
+```ts config-catalog
+/** Runtime preferences and deployment locale defaults projected to the browser. */
+export interface Config {
+  /** Explicit locale; omission follows defaultLocale or the browser. */
+  preference: Volatile<string | undefined>
+  /** Default locale selected when no explicit user preference is stored. */
+  defaultLocale?: LocaleId | undefined
+  /** Ordered locale identifiers controlling selector display order. */
+  localeOrder?: LocaleId[] | undefined
+}
+
+/** Open locale identifier accepted from language-pack plugins. */
+export type LocaleId = string
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-locale -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-product-analytics -->
 <a id="deepseek-aidsh-client-product-analytics"></a>
 
@@ -4575,6 +4599,25 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-workspace-changes -->
 
+<!-- BEGIN GENERATED config-catalog:@strata/product-bundle -->
+<a id="strataproduct-bundle"></a>
+
+## `@strata/product-bundle`
+
+- `inject`: `systemPrompt`
+- `source`: [`packages/strata/product-bundle/src/index.ts:22`](../packages/strata/product-bundle/src/index.ts)
+
+```ts config-catalog
+/** Optional configuration overrides for locating StrataHarness methodology and role skill directories. */
+export interface StrataPathsConfig {
+  /** Explicit filesystem path to the StrataHarness repository root containing `.agents/skills`. */
+  strataHarnessRoot?: string
+  /** Explicit filesystem path to the role-specific designer skills directory. */
+  designerSkillsDir?: string
+}
+```
+<!-- END GENERATED config-catalog:@strata/product-bundle -->
+
 ## 无配置的可加载插件
 
 这些插件通过 `cordis.yml` 中不含 `config:` 块的条目加载；它们未声明任何配置接口。
@@ -4590,7 +4633,6 @@ export interface Config {
 | `@deepseek-ai/dsh-authorization` | `credentials` | [`packages/credentials/authorization/src/index.ts`](../packages/credentials/authorization/src/index.ts) |
 | `@deepseek-ai/dsh-browser-use` | — | [`packages/browser-use/browser-use/src/index.ts`](../packages/browser-use/browser-use/src/index.ts) |
 | `@deepseek-ai/dsh-client-file-upload` | `agents` · `attachments` · `commands` · `connection` | [`packages/client/file-upload/src/index.ts`](../packages/client/file-upload/src/index.ts) |
-| `@deepseek-ai/dsh-client-locale` | — | [`packages/client/locale/src/index.ts`](../packages/client/locale/src/index.ts) |
 | `@deepseek-ai/dsh-client-modules` | `loader` | [`packages/client/modules/src/index.ts`](../packages/client/modules/src/index.ts) |
 | `@deepseek-ai/dsh-client-resources` | — | [`packages/client/resources/src/index.ts`](../packages/client/resources/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-agent-preset` | — | [`packages/client/ui-agent-preset/src/index.ts`](../packages/client/ui-agent-preset/src/index.ts) |
@@ -4690,6 +4732,8 @@ export interface Config {
 | `@deepseek-ai/dsh-user-questions` | — | [`packages/interaction/user-questions/src/index.ts`](../packages/interaction/user-questions/src/index.ts) |
 | `@deepseek-ai/dsh-webhook` | `agents` · `agentDefaultModel` · `agentPresets` · `permissionPresets` · `sessionTitle` · `workspaceRegistry` | [`packages/experimental/webhook/src/index.ts`](../packages/experimental/webhook/src/index.ts) |
 | `@deepseek-ai/dsh-workspace` | `storageDomain` · `sessionPersistence` | [`packages/workspace/workspace/src/index.ts`](../packages/workspace/workspace/src/index.ts) |
+| `@strata/locale-ru` | — | [`packages/strata/locale-ru/src/index.ts`](../packages/strata/locale-ru/src/index.ts) |
+| `@strata/ui-brand` | — | [`packages/strata/ui-brand/src/index.ts`](../packages/strata/ui-brand/src/index.ts) |
 <!-- END GENERATED config-catalog:no-config -->
 
 ## Seam 包（不可直接加载）

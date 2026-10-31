@@ -18,6 +18,7 @@ import {
 import { basename, dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
+import * as yaml from 'js-yaml'
 import semver from 'semver'
 
 const DEFAULT_REPO_ROOT = resolve(import.meta.dirname, '../..')
@@ -689,6 +690,107 @@ export function auditForkOverrides(repoRoot: string = DEFAULT_REPO_ROOT): AuditO
     })
   }
 
+  // (b2) @strata/locale-ru package, dependency, and default-locale overlay wiring
+  {
+    const localeFailures: string[] = []
+    let expectedProductVersion: string | undefined
+    try {
+      expectedProductVersion = readProductManifest(repoRoot).productVersion
+    } catch (_manifestErr) {
+      expectedProductVersion = undefined
+    }
+
+    const localeManifestPath = join(repoRoot, 'packages', 'strata', 'locale-ru', 'package.json')
+    if (!isFile(localeManifestPath)) {
+      localeFailures.push('packages/strata/locale-ru/package.json is missing')
+    } else {
+      try {
+        const localeManifest = parseJsonRecord(localeManifestPath)
+        if (localeManifest.name !== '@strata/locale-ru') {
+          localeFailures.push('packages/strata/locale-ru/package.json must declare name "@strata/locale-ru"')
+        }
+        if (expectedProductVersion !== undefined && localeManifest.version !== expectedProductVersion) {
+          localeFailures.push(
+            `packages/strata/locale-ru/package.json version ${String(localeManifest.version)} !== strata-product.json ${expectedProductVersion}`,
+          )
+        }
+      } catch (error) {
+        localeFailures.push(error instanceof Error ? error.message : String(error))
+      }
+    }
+
+    const bundleManifestPath = join(repoRoot, 'packages', 'strata', 'product-bundle', 'package.json')
+    if (isFile(bundleManifestPath)) {
+      try {
+        const bundleManifest = parseJsonRecord(bundleManifestPath)
+        const dependencies = isRecord(bundleManifest.dependencies) ? bundleManifest.dependencies : undefined
+        if (typeof dependencies?.['@strata/locale-ru'] !== 'string' || dependencies['@strata/locale-ru'].trim() === '') {
+          localeFailures.push('packages/strata/product-bundle/package.json must declare "@strata/locale-ru" in dependencies')
+        }
+      } catch (error) {
+        localeFailures.push(error instanceof Error ? error.message : String(error))
+      }
+    }
+
+    const patchPath = join(repoRoot, 'packages', 'strata', 'product-bundle', 'cordis.patch.yml')
+    if (!isFile(patchPath)) {
+      localeFailures.push('packages/strata/product-bundle/cordis.patch.yml is missing')
+    } else {
+      try {
+        const parsedPatch: unknown = yaml.load(readFileSync(patchPath, 'utf8'))
+        if (!Array.isArray(parsedPatch)) {
+          localeFailures.push('packages/strata/product-bundle/cordis.patch.yml must parse to a YAML sequence')
+        } else {
+          let mountsLocaleRu = false
+          let defaultLocale: unknown
+          let localeOrder: unknown
+          for (const entry of parsedPatch) {
+            if (!isRecord(entry)) continue
+            if (entry.id === 'locale' && isRecord(entry.config)) {
+              defaultLocale = entry.config.defaultLocale
+              localeOrder = entry.config.localeOrder
+            }
+            if (Array.isArray(entry.insert)) {
+              for (const child of entry.insert) {
+                if (isRecord(child) && child.name === '@strata/locale-ru') {
+                  mountsLocaleRu = true
+                }
+              }
+            }
+          }
+          if (!mountsLocaleRu) {
+            localeFailures.push('packages/strata/product-bundle/cordis.patch.yml does not insert "@strata/locale-ru"')
+          }
+          if (defaultLocale !== 'ru') {
+            localeFailures.push(
+              `packages/strata/product-bundle/cordis.patch.yml must configure locale defaultLocale: "ru", got ${JSON.stringify(defaultLocale)}`,
+            )
+          }
+          const validOrder = Array.isArray(localeOrder)
+            && localeOrder.length === 3
+            && localeOrder[0] === 'ru'
+            && localeOrder[1] === 'en'
+            && localeOrder[2] === 'zh'
+          if (!validOrder) {
+            localeFailures.push(
+              `packages/strata/product-bundle/cordis.patch.yml must configure localeOrder: ["ru", "en", "zh"], got ${JSON.stringify(localeOrder)}`,
+            )
+          }
+        }
+      } catch (error) {
+        localeFailures.push(error instanceof Error ? error.message : String(error))
+      }
+    }
+
+    checks.push({
+      id: 'russian-locale-pack',
+      ok: localeFailures.length === 0,
+      detail: localeFailures.length === 0
+        ? '@strata/locale-ru is present, version-aligned, declared in @strata/product-bundle, and mounted with defaultLocale: ru and localeOrder: [ru, en, zh]'
+        : localeFailures.join('; '),
+    })
+  }
+
   // (c) Phase 3 three-level desktop isolation
   {
     const isolationFailures: string[] = []
@@ -1064,7 +1166,7 @@ function renderFiveStepChecklist(targetTag: string, impactMarkdown: string): str
     '',
     `1. **Merge without auto-commit:** run \`git merge --no-commit ${targetTag}\` and resolve any overlapping \`strata(override)\` files while preserving override markers.`,
     '2. **Isolate new workflows & review upgrade guides:** relocate any newly added `.github/workflows/*.yml` or `.github/dependabot.{yml,yaml}` files via `git mv` into `.github/upstream-workflows/` and review all listed `docs/upgrade-guide/` entries.',
-    '3. **Verify Soft-Fork invariants & workspace constraints:** run `pnpm run strata:audit-overrides`, `pnpm run constraints`, and targeted regression suites.',
+    '3. **Verify Soft-Fork invariants, Russian localization parity, & workspace constraints:** run `pnpm run strata:audit-overrides`, `pnpm exec vitest run scripts/strata/russian-localization-parity.spec.ts`, `pnpm run constraints`, and targeted regression suites.',
     `4. **Advance dual-track product version:** run \`pnpm run strata:version minor --upstream-base ${targetTag}\` to bump \`strata-product.json\` and \`@strata/*\` atomically.`,
     '5. **Qualify packaged desktop & local updater:** run `pnpm --filter @deepseek-ai/dsh-desktop run check:package` and `pnpm --filter @deepseek-ai/dsh-desktop run test:updates:local`.',
     '',

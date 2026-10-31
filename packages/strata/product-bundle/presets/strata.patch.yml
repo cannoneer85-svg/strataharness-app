@@ -6,8 +6,6 @@
       name: '@deepseek-ai/dsh-agent-preset'
       config:
         id: strata
-        name: StrataHarness
-        description: Unified StrataHarness workflow (Step 0 classification, stop-gates, all 41 engineering/analysis skills, subagents, terminal, and Office documents).
         order: 1
         plugins:
           - id: persona

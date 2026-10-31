@@ -108,6 +108,36 @@ export function shortName(name: string): string {
   return unscoped.replace(/^dsh-(?:host-|client-)?/, '')
 }
 
+function isBuiltInPluginModule(name: string): boolean {
+  return name.startsWith('@deepseek-ai/') || name.startsWith('@strata/') || name.startsWith('cordis:')
+}
+
+type OptionalPluginTitle = NonNullable<PackageView['meta']>['title']
+type OptionalPluginDescription = NonNullable<PackageView['meta']>['description']
+
+function resolvePluginTitle(
+  moduleName: string,
+  title: OptionalPluginTitle,
+  resolveText: PluginManagerFace['resolveText'],
+): string {
+  if (typeof title === 'object') return resolveText(title)
+  // strata(override): consult centralized LocalizedText catalogs for built-in plugins lacking locale/en.json.
+  if (isBuiltInPluginModule(moduleName)) return resolveText({ en: title ?? moduleName })
+  return title === undefined ? moduleName : resolveText(title)
+}
+
+function resolvePluginDescription(
+  moduleName: string,
+  description: OptionalPluginDescription,
+  resolveText: PluginManagerFace['resolveText'],
+): string | undefined {
+  if (description === undefined) return undefined
+  const resolved = typeof description === 'string' && isBuiltInPluginModule(moduleName)
+    ? resolveText({ en: description })
+    : resolveText(description)
+  return resolved || undefined
+}
+
 /**
  * Resolve installed package metadata without changing its technical identity.
  * @param pkg - package identity and local metadata.
@@ -118,8 +148,8 @@ export function packageText(
   pkg: Pick<PackageView, 'name' | 'meta'>, resolveText: PluginManagerFace['resolveText'],
 ): { title: string; description: string | undefined; beta: boolean } {
   return {
-    title: pkg.meta?.title === undefined ? pkg.name : resolveText(pkg.meta.title),
-    description: pkg.meta?.description === undefined ? undefined : resolveText(pkg.meta.description) || undefined,
+    title: resolvePluginTitle(pkg.name, pkg.meta?.title, resolveText),
+    description: resolvePluginDescription(pkg.name, pkg.meta?.description, resolveText),
     beta: pkg.name.startsWith('@deepseek-ai/dsh-experimental-'),
   }
 }
@@ -134,8 +164,8 @@ export function rowText(
   row: Pick<PackageRow, 'moduleName' | 'meta'>, resolveText: PluginManagerFace['resolveText'],
 ): { title: string; description: string | undefined } {
   return {
-    title: row.meta?.title === undefined ? row.moduleName : resolveText(row.meta.title),
-    description: row.meta?.description === undefined ? undefined : resolveText(row.meta.description) || undefined,
+    title: resolvePluginTitle(row.moduleName, row.meta?.title, resolveText),
+    description: resolvePluginDescription(row.moduleName, row.meta?.description, resolveText),
   }
 }
 

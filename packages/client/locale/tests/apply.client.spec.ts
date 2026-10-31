@@ -247,4 +247,102 @@ describe('locale apply', () => {
     await f2.dispose()
     expect(quiet.slots.entries(SLOT)).toHaveLength(0)
   })
+
+  it('adopts __DSH_LOCALE_CONFIG__ deployment defaults and explicit apply options in Phase 1', async () => {
+    const b = await bench()
+    declareItems(b.slots)
+    vi.stubGlobal('__DSH_LOCALE_CONFIG__', {
+      defaultLocale: 'ru',
+      localeOrder: ['ru', 'en', 'zh'],
+    })
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const locale = b.ctx.get('locale') as LocaleRuntime
+    const pack = b.ctx.plugin({
+      inject: ['locale'],
+      apply: packCtx => packCtx.effect(
+        () => packCtx.locale.addLanguage({ id: 'ru', label: 'Русский', fallback: 'en' }),
+        'test ru pack',
+      ),
+    })
+    await pack.await()
+
+    const { instance } = faceOf(b.slots)
+    expect(locale.getLocale().active).toBe('ru')
+    expect(instance.getSnapshot().options).toEqual([
+      { id: 'ru', label: 'Русский' },
+      { id: 'en', label: 'English' },
+      { id: 'zh', label: '中文' },
+    ])
+
+    await b.ctx.fiber.dispose()
+
+    const overrideBench = await bench()
+    vi.stubGlobal('__DSH_LOCALE_CONFIG__', {
+      defaultLocale: 'zh',
+      localeOrder: ['zh', 'en'],
+    })
+    await overrideBench.ctx.plugin({
+      inject: [...inject],
+      apply: overrideCtx => apply(overrideCtx, { defaultLocale: 'en', localeOrder: ['en', 'zh'] }),
+    }).await()
+    const overridden = overrideBench.ctx.get('locale') as LocaleRuntime
+    expect(overridden.getLocale().active).toBe('en')
+    expect(overridden.getLocale().locales.map(item => item.id)).toEqual(['en', 'zh'])
+    await overrideBench.ctx.fiber.dispose()
+  })
+
+  it('defers initial __DSH_LOCALE__.onChange until an awaited external defaultLocale registers, or flushes fallback after macrotask turn', async () => {
+    // 1. External pack registers 'ru' right after dsh-client-locale: onChange receives only 'ru', never transient 'en'.
+    const b = await bench()
+    const onChange = vi.fn()
+    vi.stubGlobal('__DSH_LOCALE__', {
+      read: async () => ({ languages: ['en-US'], preference: null }),
+      onChange,
+    })
+    vi.stubGlobal('__DSH_LOCALE_CONFIG__', {
+      defaultLocale: 'ru',
+      localeOrder: ['ru', 'en', 'zh'],
+    })
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    expect(onChange).not.toHaveBeenCalled()
+
+    await b.ctx.plugin({
+      inject: ['locale'],
+      apply: packCtx => packCtx.effect(
+        () => packCtx.locale.addLanguage({ id: 'ru', label: 'Русский', fallback: 'en' }),
+        'test ru pack',
+      ),
+    }).await()
+    expect(onChange).toHaveBeenCalledTimes(1)
+    expect(onChange).toHaveBeenCalledWith('ru')
+    await b.ctx.fiber.dispose()
+
+    // 2. External pack is absent/disabled: macrotask fallback timer flushes 'en' to __DSH_LOCALE__.onChange once.
+    const missingPackBench = await bench()
+    const fallbackOnChange = vi.fn()
+    vi.stubGlobal('__DSH_LOCALE__', {
+      read: async () => ({ languages: ['en-US'], preference: null }),
+      onChange: fallbackOnChange,
+    })
+    await missingPackBench.ctx.plugin({ inject: [...inject], apply }).await()
+    expect(fallbackOnChange).not.toHaveBeenCalled()
+    await new Promise((resolve) => { setTimeout(resolve, 10) })
+    expect(fallbackOnChange).toHaveBeenCalledTimes(1)
+    expect(fallbackOnChange).toHaveBeenCalledWith('en')
+    await missingPackBench.ctx.fiber.dispose()
+
+    // 3. Disposing before the fallback timer fires cancels the timer cleanly without notifying onChange.
+    const disposedEarlyBench = await bench()
+    const disposedOnChange = vi.fn()
+    vi.stubGlobal('__DSH_LOCALE__', {
+      read: async () => ({ languages: ['en-US'], preference: null }),
+      onChange: disposedOnChange,
+    })
+    const earlyFiber = disposedEarlyBench.ctx.plugin({ inject: [...inject], apply })
+    await earlyFiber.await()
+    await earlyFiber.dispose()
+    await new Promise((resolve) => { setTimeout(resolve, 10) })
+    expect(disposedOnChange).not.toHaveBeenCalled()
+    await disposedEarlyBench.ctx.fiber.dispose()
+  })
 })

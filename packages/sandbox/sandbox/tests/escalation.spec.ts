@@ -87,10 +87,14 @@ describe('approveEscalation', () => {
     expect(seen[0]?.reason).toBe('escalate sandbox to workspace-write: the user asked to write in the workspace')
     expect(seen[0]).toMatchObject({
       displayReason: {
+        ru: 'Разрешить эту операцию с правами workspace-write: the user asked to write in the workspace',
         en: 'Allow this operation with workspace-write permissions: the user asked to write in the workspace',
         zh: '允许本次操作使用 workspace-write 权限：the user asked to write in the workspace',
       },
     })
+    const signal = new AbortController().signal
+    await approveEscalation(req(), ingredients({ signal, approver: approver('allowed-once', r => seen.push(r as { reason?: string })) }))
+    expect(seen[1]).toMatchObject({ signal })
   })
 
   it.each(ESCALATION_TARGETS)('repeating %s succeeds without asking for approval', async (mode) => {

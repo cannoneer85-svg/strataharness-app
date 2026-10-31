@@ -25,21 +25,21 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-只要 web GUI 需要语言切换或翻译文案就使用它：已发布的设置行覆盖用户侧，插件作者则注册自己的字典。挂载无需任何配置——本包随客户端树一起激活。
+只要 web GUI 需要语言切换或翻译文案就使用它：已发布的设置行覆盖用户侧，插件作者则注册自己的字典。挂载无需任何配置，部署方也可在 Host 插件上按需配置 `defaultLocale` 与 `localeOrder`。
 
 ### 选择语言
 
-打开“设置 → 常规”并选择一种已注册语言。生效中的 locale 会立即应用：UI 文案切换、`<html lang>` 指向外部 id 或内置语言的文档标签，选择写入持久设置分区。没有显式 Host 偏好的浏览器会按完整标签、再按主语言子标签选择 `navigator` 请求的第一个已注册语言，无法匹配时回退到英文。已存储的外部 locale 会等待其定义注册，不会在不可用时生效。
+打开“设置 → 常规”并选择一种已注册语言。生效中的 locale 会立即应用：UI 文案切换、`<html lang>` 指向外部 id 或内置语言的文档标签，选择写入持久设置分区。在没有显式 Host 偏好时，`LocaleRuntime` 会优先选用已注册的 `defaultLocale`，否则按完整标签、再按主语言子标签选择 `navigator` 请求的第一个已注册语言并回退到英文；`localeOrder` 固定选择器的显示顺序。待注册的外部 locale 会等待其定义就绪后再同步 `<html lang>` 与 `__DSH_LOCALE__.onChange`。
 
 原生壳可以提供包含异步 `read()` 和 `onChange(locale)` 回调的 `__DSH_LOCALE__`。初始化在 Client 挂载前提供当前 Host 偏好和有序的系统语言列表。自动选择保持临时状态；只有设置中的选择会写入 `locale.preference`。每次加载页面都重新读取，避免重载后沿用过期的 preload 偏好。普通浏览器继续使用 navigator 检测和原有的设置作用域策略。
 
 ### 注册字典
 
-用已合并进 `LocaleNamespaceMap` 的命名空间调用 `ctx.locale.register(ns, { zh, en })`；编译器会对照该命名空间的类型化键并集检查每个键，并要求两个内置 locale 齐全。消费方通过 `ctx.locale.bind(ns)` 或框架注入的 `t` 席位翻译。UI 已挂载后再注册的字典无需重新挂载即可生效。
+用已合并进 `LocaleNamespaceMap` 的命名空间调用 `ctx.locale.register(ns, { zh, en })`；编译器会对照该命名空间的类型化键并集检查每个键，并要求两个内置 locale 齐全。消费方通过 `ctx.locale.bind(ns)` 或框架注入的 `t` 席位翻译，模板支持 `{name}` 占位符以及按命中字典条目的语言经 `Intl.PluralRules` 求值的紧凑 ICU `{count, plural, ...}` 复数子句。UI 已挂载后再注册的字典无需重新挂载即可生效。
 
 ### 解析包文本
 
-使用 `ctx.locale.resolveText(text)` 解析 [`LocalizedText`](../../util/package-manifest/README.zh.md)，例如已安装插件的标题与描述。字面字符串原样返回。翻译映射使用小写语言 id，必须提供 `en` 回退值，并沿当前语言声明的回退链查找。它们不查询或注册命名空间字典。
+使用 `ctx.locale.resolveText(text)` 解析 [`LocalizedText`](../../util/package-manifest/README.zh.md)，例如已安装插件的标题与描述。字面字符串原样返回。翻译映射使用小写语言 id，必须提供 `en` 回退值，并沿生效语言声明的回退链查找：对每个非英文语言，显式 `text[locale]` 条目优先于通过 `ctx.locale.registerTextCatalog(locale, entries)`（以 `text.en` 为键）注册的文本目录，最后回退到 `text.en`。它们不查询或注册命名空间字典。
 
 ### 注册语言包
 
@@ -67,7 +67,7 @@ export function apply(ctx) {
 
 ### Host 半侧做什么
 
-每个已认证浏览器都遵循共享的 [settings scope 策略](../ui-settings/README.zh.md)，通过 Host settings 服务持久化偏好。
+每个已认证浏览器都遵循共享的 [settings scope 策略](../ui-settings/README.zh.md)，通过 Host settings 服务持久化偏好。当在 Host 插件上配置了 `defaultLocale` 或 `localeOrder` 时，它还会通过 `webserver/index-inject` 向输出的 HTML 页面注入 `__DSH_LOCALE_CONFIG__`。
 
 -----
 
@@ -97,9 +97,10 @@ export function apply(ctx) {
 
 | 文件 | 职责 |
 |---|---|
-| [`src/client/index.ts`](src/client/index.ts) | `LocaleRuntime`、字典注册表、Language 行注册、`locale/change` 事件 |
-| [`src/index.ts`](src/index.ts) | node 半侧：注册 `locale` 设置命名空间 |
-| [`src/locale-settings.ts`](src/locale-settings.ts) | `locale.preference` 的持久 schema |
+| [`src/client/index.ts`](src/client/index.ts) | `LocaleRuntime`、字典与文本目录注册表、Language 行注册、`locale/change` 事件 |
+| [`src/client/interpolate.ts`](src/client/interpolate.ts) | `{param}` 占位符替换与基于 `Intl.PluralRules` 的 ICU 复数格式化 |
+| [`src/index.ts`](src/index.ts) | Node 半侧：配置 `locale` 设置展示并投射 `Config`（`defaultLocale`、`localeOrder`） |
+| [`src/locale-settings.ts`](src/locale-settings.ts) | `locale.preference` 与部署级语言配置的 schema |
 | [`src/locales/`](src/locales/) | 内置的 `zh`／`en` 字典 |
 
 </details>
@@ -135,7 +136,7 @@ export function apply(ctx) {
 这些限制说明本地化在哪些地方不完整，或在注册时被冻结。它们是当前包约束，不是待办事项清单。
 
 - **注册表持有的文本只读取一次翻译**——在 slot 渲染路径之外于注册时捕获的文案（例如 command 注册表中的 `/model` 命令描述）在重新注册前保持注册时的语言；slot 渲染的文案随切换实时更新。
-- **语言包负责语言特有行为**——注册表提供选择、持久化、浏览器匹配、逐键回退和 `<html lang>`；它不增加复数规则或双向布局。
+- **语言包负责双向排版与布局行为**——注册表提供选择、持久化、浏览器匹配、逐键与 `LocalizedText` 目录回退、`Intl.PluralRules` 复数子句和 `<html lang>`；它不增加双向布局或语法性数一致变形。
 
 <a id="dev-note"></a>
 ### 开发备注

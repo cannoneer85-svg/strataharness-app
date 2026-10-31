@@ -1,0 +1,183 @@
+{
+  "extends": "../../../tsconfig.base.client.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../client/locale/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/ui-agent-preset"
+    },
+    {
+      "path": "../../client/ui-approval"
+    },
+    {
+      "path": "../../client/ui-chat/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/ui-commands"
+    },
+    {
+      "path": "../../client/ui-conversation/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/ui-deepseek-model-label-1017"
+    },
+    {
+      "path": "../../client/ui-deliverables/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/ui-entry-customization"
+    },
+    {
+      "path": "../../client/ui-goal"
+    },
+    {
+      "path": "../../client/ui-input-trigger"
+    },
+    {
+      "path": "../../client/ui-jobs"
+    },
+    {
+      "path": "../../client/ui-layout"
+    },
+    {
+      "path": "../../client/ui-message-feedback"
+    },
+    {
+      "path": "../../client/ui-model-selection"
+    },
+    {
+      "path": "../../client/ui-open-in-app"
+    },
+    {
+      "path": "../../client/ui-permission-presets"
+    },
+    {
+      "path": "../../client/ui-plan"
+    },
+    {
+      "path": "../../client/ui-plugin-manager/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/ui-plugin-market"
+    },
+    {
+      "path": "../../client/ui-reference"
+    },
+    {
+      "path": "../../client/ui-schedule"
+    },
+    {
+      "path": "../../client/ui-secret-mask"
+    },
+    {
+      "path": "../../client/ui-settings-account"
+    },
+    {
+      "path": "../../client/ui-settings-agent-loop"
+    },
+    {
+      "path": "../../client/ui-settings-general/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/ui-settings-models"
+    },
+    {
+      "path": "../../client/ui-settings-plugin-inventory"
+    },
+    {
+      "path": "../../client/ui-settings-plugins"
+    },
+    {
+      "path": "../../client/ui-settings-session-log"
+    },
+    {
+      "path": "../../client/ui-settings-shell"
+    },
+    {
+      "path": "../../client/ui-settings-subagent"
+    },
+    {
+      "path": "../../client/ui-settings-web-search"
+    },
+    {
+      "path": "../../client/ui-shortcuts"
+    },
+    {
+      "path": "../../client/ui-sidebar"
+    },
+    {
+      "path": "../../client/ui-sidebar-browser/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/ui-sidebar-documentpreview/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/ui-sidebar-files"
+    },
+    {
+      "path": "../../client/ui-sidebar-right"
+    },
+    {
+      "path": "../../client/ui-sidebar-terminal"
+    },
+    {
+      "path": "../../client/ui-skill"
+    },
+    {
+      "path": "../../client/ui-slots"
+    },
+    {
+      "path": "../../client/ui-subagent"
+    },
+    {
+      "path": "../../client/ui-theme/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/ui-trajectory"
+    },
+    {
+      "path": "../../client/ui-user-questions"
+    },
+    {
+      "path": "../../client/ui-workflow-run"
+    },
+    {
+      "path": "../../client/ui-workspace"
+    },
+    {
+      "path": "../../experimental/client-ui-agent-team"
+    },
+    {
+      "path": "../../experimental/client-ui-claude-code-mods"
+    },
+    {
+      "path": "../../experimental/client-ui-cot-translation/tsconfig.client.json"
+    },
+    {
+      "path": "../../experimental/client-ui-voice-input"
+    },
+    {
+      "path": "../../experimental/inspector/tsconfig.client.json"
+    },
+    {
+      "path": "../../experimental/session-inspector"
+    },
+    {
+      "path": "../../extensions/ui-cordis"
+    },
+    {
+      "path": "../../session-query/session-log-export/tsconfig.client.json"
+    }
+  ]
+}

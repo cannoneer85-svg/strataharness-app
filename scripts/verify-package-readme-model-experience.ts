@@ -130,6 +130,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/client/ui-brand-official': { kind: 'none', reason: 'Browser-side presentation occupants; registers nothing model-facing.' },
   'packages/strata/product-bundle': { kind: 'indirect', reason: 'The product bundle selects Strata presets and registers {{strata_root}} for preset prompt templates; the composed preset plugins own the model-visible sections and tools.' },
   'packages/strata/ui-brand': { kind: 'none', reason: 'Browser-side presentation occupants; registers nothing model-facing.' },
+  'packages/strata/locale-ru': { kind: 'none', reason: 'Browser-side Russian language pack and metadata catalog; registers nothing model-facing.' },
   'packages/client/ui-conversation': { kind: 'none', reason: 'Browser-side UI plugin layer; registers nothing model-facing.' },
   'packages/client/ui-approval': { kind: 'none', reason: 'Browser-side approval presentation; registers nothing model-facing.' },
   'packages/client/ui-chat': { kind: 'none', reason: 'Browser-side Chat presentation; registers nothing model-facing.' },
