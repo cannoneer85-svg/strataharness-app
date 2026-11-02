@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import { createElectronBuilderConfig } from '../scripts/electron-builder-config.mjs'
 import {
   desktopElectronBuilderArguments,
   desktopElectronBuilderEnvironment,
@@ -7,6 +11,16 @@ import {
   withoutDesktopUploadCredentials,
   withoutWindowsSigningEnvironment,
 } from '../scripts/package-target.ts'
+import * as strataDesktopConfig from '../scripts/strata-desktop-config.mjs'
+
+const REPOSITORY_ROOT = resolve(import.meta.dirname, '..', '..', '..')
+const tempDirectories: string[] = []
+
+afterEach(() => {
+  for (const directory of tempDirectories.splice(0)) {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
 
 describe('desktop package target', () => {
   it('selects matching runtime and electron-builder architectures', () => {
@@ -156,4 +170,81 @@ it('allows skipping notarization only for signed macOS packages', () => {
     expect(() => parseDesktopPackageInvocation(['mac-arm64', '--skip-notarization', flag], 'darwin', 'arm64')).toThrow(/requires a signed macOS build/u)
   }
   expect(() => parseDesktopPackageInvocation(['win-x64', '--skip-notarization'], 'win32', 'x64')).toThrow(/requires a signed macOS build/u)
+})
+
+describe('StrataHarness releaseRepository validation and electron-builder extraMetadata', () => {
+  it('validates releaseRepository in strata-product.json and rejects empty, non-HTTPS/non-GitHub, and upstream DeepSeek URLs', () => {
+    const {
+      readStrataProductManifest,
+      resolveStrataReleaseRepository,
+      validateStrataReleaseRepository,
+    } = strataDesktopConfig as typeof strataDesktopConfig & {
+      resolveStrataReleaseRepository?: (env?: NodeJS.ProcessEnv, repositoryRoot?: string) => string
+      validateStrataReleaseRepository?: (value: unknown, label?: string) => string
+    }
+
+    expect(validateStrataReleaseRepository).toBeTypeOf('function')
+    expect(resolveStrataReleaseRepository).toBeTypeOf('function')
+
+    const manifest = readStrataProductManifest(REPOSITORY_ROOT)
+    expect(manifest).toMatchObject({
+      productName: 'StrataHarness',
+      releaseRepository: 'https://github.com/cannoneer85-svg/strataharness-app.git',
+    })
+    expect(resolveStrataReleaseRepository!({}, REPOSITORY_ROOT)).toBe(
+      'https://github.com/cannoneer85-svg/strataharness-app.git',
+    )
+    expect(
+      resolveStrataReleaseRepository!(
+        { STRATA_RELEASE_REPOSITORY: ' https://github.com/cannoneer85-svg/strataharness-app ' },
+        REPOSITORY_ROOT,
+      ),
+    ).toBe('https://github.com/cannoneer85-svg/strataharness-app')
+
+    for (const invalid of [
+      undefined,
+      null,
+      '',
+      '   ',
+      'http://github.com/cannoneer85-svg/strataharness-app.git',
+      'ssh://git@github.com/cannoneer85-svg/strataharness-app.git',
+      'https://gitlab.com/cannoneer85-svg/strataharness-app.git',
+      'https://download.deepseek.com/strataharness-app.git',
+      'https://github.com/only-owner',
+      'https://github.com/deepseek-ai/deepseek-harness.git',
+      'https://github.com/deepseek-ai/deepseek-harness',
+    ]) {
+      expect(() => validateStrataReleaseRepository!(invalid), `invalid=${String(invalid)}`).toThrow(/releaseRepository/u)
+      const root = mkdtempSync(join(tmpdir(), 'strata-release-repo-invalid-'))
+      tempDirectories.push(root)
+      writeFileSync(
+        join(root, 'strata-product.json'),
+        `${JSON.stringify({
+          productName: 'StrataHarness',
+          productVersion: '1.0.1',
+          upstreamBaseTag: 'dsh-v0.2.1-rc.5',
+          upstreamRepository: 'https://github.com/deepseek-ai/deepseek-harness.git',
+          ...(invalid === undefined ? {} : { releaseRepository: invalid }),
+        }, null, 2)}\n`,
+      )
+      expect(() => readStrataProductManifest(root), `manifest invalid=${String(invalid)}`).toThrow(/releaseRepository/u)
+    }
+  })
+
+  it('embeds dshReleaseRepository into electron-builder extraMetadata', () => {
+    const config = createElectronBuilderConfig(
+      {
+        DSH_DESKTOP_APP_ID: 'com.nikl.strataharness',
+        DSH_DESKTOP_TARGET_PLATFORM: 'win32',
+        DSH_DESKTOP_TARGET_ARCH: 'x64',
+        DSH_DESKTOP_UNSIGNED: '1',
+      },
+      'win32',
+      'x64',
+    )
+    expect(config.extraMetadata).toMatchObject({
+      name: '@strata/desktop',
+      dshReleaseRepository: 'https://github.com/cannoneer85-svg/strataharness-app.git',
+    })
+  })
 })

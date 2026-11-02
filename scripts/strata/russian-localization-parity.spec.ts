@@ -900,6 +900,23 @@ describe('StrataHarness 100% Russian localization parity gate', { timeout: 30_00
       }
 
       expect(evaluateRussianLocalizationParity(parityInput)).toEqual([])
+
+      const ruSettingsDict = russianNamespaces.get('settings')
+      expect(ruSettingsDict).toBeDefined()
+      const expectedCompactSidebarUpdatePills: Readonly<Record<string, string>> = {
+        'desktop.update.available': 'Обновление',
+        'desktop.update.retry': 'Обновление',
+        'desktop.update.checking': 'Проверка…',
+        'desktop.update.verifying': 'Проверка…',
+        'desktop.update.installing': 'Перезапуск…',
+        'desktop.update.ready': 'Перезапустить',
+      }
+      expect(ruSettingsDict).toMatchObject(expectedCompactSidebarUpdatePills)
+      for (const [pillKey, expectedLabel] of Object.entries(expectedCompactSidebarUpdatePills)) {
+        const actualLabel = ruSettingsDict?.[pillKey] ?? ''
+        expect(actualLabel, `settings:${pillKey}`).toBe(expectedLabel)
+        expect(actualLabel.length, `settings:${pillKey} length <= 13`).toBeLessThanOrEqual(13)
+      }
     } finally {
       await ctx.fiber.dispose()
     }

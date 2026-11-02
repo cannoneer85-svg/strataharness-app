@@ -13,6 +13,9 @@ export const STRATA_PRODUCT_MANIFEST_FILENAME = 'strata-product.json'
 /** Environment variable overriding `productVersion` during local updater qualification runs. */
 export const STRATA_PRODUCT_VERSION_ENV = 'STRATA_PRODUCT_VERSION'
 
+/** Environment variable overriding `releaseRepository` during packaging or update tests. */
+export const STRATA_RELEASE_REPOSITORY_ENV = 'STRATA_RELEASE_REPOSITORY'
+
 /** Shipped desktop product name across Electron menus, dialogs, bundles, and installers. */
 export const STRATA_DESKTOP_PRODUCT_NAME = 'StrataHarness'
 
@@ -160,9 +163,65 @@ function validateStrataSemVer(value, label) {
 }
 
 /**
+ * Validate a canonical HTTPS GitHub release repository URL (`https://github.com/<owner>/<repo>[.git]`)
+ * and reject upstream DeepSeek repositories or domains.
+ * @param {unknown} value - Candidate repository URL string.
+ * @param {string} [label] - Field or variable name used in diagnostics.
+ * @returns {string} Validated HTTPS GitHub repository URL.
+ */
+export function validateStrataReleaseRepository(value, label = 'releaseRepository') {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error(`strata product manifest: ${label} must be a non-empty HTTPS GitHub repository URL`)
+  }
+  const trimmed = value.trim()
+  let parsedUrl
+  try {
+    parsedUrl = new URL(trimmed)
+  }
+  catch {
+    throw new Error(`strata product manifest: ${label} ${JSON.stringify(value)} must be a valid HTTPS GitHub repository URL`)
+  }
+  const host = parsedUrl.hostname.toLowerCase()
+  if (host === 'deepseek.com' || host.endsWith('.deepseek.com')) {
+    throw new Error(`strata product manifest: ${label} must not target upstream DeepSeek domain ${host}`)
+  }
+  if (
+    parsedUrl.protocol !== 'https:'
+    || host !== 'github.com'
+    || parsedUrl.port !== ''
+    || parsedUrl.username !== ''
+    || parsedUrl.password !== ''
+    || parsedUrl.search !== ''
+    || parsedUrl.hash !== ''
+  ) {
+    throw new Error(`strata product manifest: ${label} ${JSON.stringify(value)} must use https://github.com/<owner>/<repo>`)
+  }
+  const pathMatch = /^\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/u.exec(parsedUrl.pathname)
+  if (
+    pathMatch === null
+    || pathMatch[1] === '.'
+    || pathMatch[1] === '..'
+    || pathMatch[2] === '.'
+    || pathMatch[2] === '..'
+  ) {
+    throw new Error(`strata product manifest: ${label} ${JSON.stringify(value)} must match https://github.com/<owner>/<repo>[.git]`)
+  }
+  const owner = pathMatch[1].toLowerCase()
+  const repo = pathMatch[2].toLowerCase()
+  if (
+    `${owner}/${repo}` === 'deepseek-ai/deepseek-harness'
+    || owner === 'deepseek-ai'
+    || owner === 'deepseek-harness'
+  ) {
+    throw new Error(`strata product manifest: ${label} must not target upstream repository ${pathMatch[1]}/${pathMatch[2]}`)
+  }
+  return trimmed
+}
+
+/**
  * Read and validate the root `strata-product.json` manifest.
  * @param {string} [repositoryRoot] - Monorepo root directory containing `strata-product.json`.
- * @returns {{ productName: string, productVersion: string, upstreamBaseTag: string, upstreamRepository: string }} Validated product manifest.
+ * @returns {{ productName: string, productVersion: string, upstreamBaseTag: string, upstreamRepository: string, releaseRepository: string }} Validated product manifest.
  */
 export function readStrataProductManifest(repositoryRoot = DEFAULT_REPOSITORY_ROOT) {
   const manifestPath = join(repositoryRoot, STRATA_PRODUCT_MANIFEST_FILENAME)
@@ -188,11 +247,19 @@ export function readStrataProductManifest(repositoryRoot = DEFAULT_REPOSITORY_RO
   if (typeof raw.upstreamRepository !== 'string' || raw.upstreamRepository.trim() === '') {
     throw new Error('strata product manifest: upstreamRepository must be a non-empty string')
   }
+  const releaseRepository = validateStrataReleaseRepository(raw.releaseRepository, 'releaseRepository')
+  if (
+    releaseRepository.replace(/\.git\/?$/iu, '').toLowerCase()
+    === raw.upstreamRepository.trim().replace(/\.git\/?$/iu, '').toLowerCase()
+  ) {
+    throw new Error('strata product manifest: releaseRepository must not equal upstreamRepository')
+  }
   return {
     productName: raw.productName,
     productVersion,
     upstreamBaseTag: raw.upstreamBaseTag,
     upstreamRepository: raw.upstreamRepository,
+    releaseRepository,
   }
 }
 
@@ -208,4 +275,18 @@ export function resolveStrataProductVersion(env = process.env, repositoryRoot = 
     return validateStrataSemVer(override, STRATA_PRODUCT_VERSION_ENV)
   }
   return readStrataProductManifest(repositoryRoot).productVersion
+}
+
+/**
+ * Resolve the canonical StrataHarness GitHub release repository URL for packaged desktop metadata.
+ * @param {NodeJS.ProcessEnv} [env] - Environment that may define `STRATA_RELEASE_REPOSITORY`.
+ * @param {string} [repositoryRoot] - Monorepo root directory containing `strata-product.json`.
+ * @returns {string} Validated HTTPS GitHub release repository URL.
+ */
+export function resolveStrataReleaseRepository(env = process.env, repositoryRoot = DEFAULT_REPOSITORY_ROOT) {
+  const override = env[STRATA_RELEASE_REPOSITORY_ENV]?.trim()
+  if (override !== undefined && override !== '') {
+    return validateStrataReleaseRepository(override, STRATA_RELEASE_REPOSITORY_ENV)
+  }
+  return readStrataProductManifest(repositoryRoot).releaseRepository
 }

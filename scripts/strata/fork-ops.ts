@@ -46,6 +46,8 @@ export interface StrataProductManifest {
   readonly upstreamBaseTag: string
   /** Canonical upstream Git repository URL. */
   readonly upstreamRepository: string
+  /** Canonical GitHub repository URL publishing StrataHarness desktop releases (`strata-v*`). */
+  readonly releaseRepository: string
 }
 
 /** Discovered `@strata/*` workspace package manifest summary. */
@@ -70,6 +72,8 @@ export interface ForkStatusReport {
   readonly upstreamBaseTag: string
   /** Upstream Git repository URL from `strata-product.json`. */
   readonly upstreamRepository: string
+  /** GitHub release repository URL from `strata-product.json`. */
+  readonly releaseRepository: string
   /** Discovered `packages/strata/*` workspace manifests. */
   readonly strataPackages: readonly StrataWorkspacePackage[]
   /** Described revision or state of `resources/strataharness`. */
@@ -306,6 +310,80 @@ function validateUpstreamTag(tag: unknown, label: string): string {
   return tag
 }
 
+/**
+ * Validate a canonical HTTPS GitHub release repository URL (`https://github.com/<owner>/<repo>[.git]`)
+ * and reject upstream DeepSeek repositories or domains.
+ * @param value - Candidate `releaseRepository` value from `strata-product.json`.
+ * @param upstreamRepository - Optional `upstreamRepository` URL to guard against equality.
+ * @param label - Field label for diagnostic messages.
+ * @returns Validated HTTPS GitHub repository URL string.
+ */
+export function validateReleaseRepository(
+  value: unknown,
+  upstreamRepository?: string,
+  label: string = 'releaseRepository',
+): string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error(`fork-ops: strata-product.json ${label} must be a non-empty HTTPS GitHub repository URL`)
+  }
+  const trimmed = value.trim()
+  let parsedUrl: URL
+  try {
+    parsedUrl = new URL(trimmed)
+  } catch (_error) {
+    throw new Error(`fork-ops: strata-product.json ${label} ${JSON.stringify(value)} must be a valid HTTPS GitHub URL`)
+  }
+  const host = parsedUrl.hostname.toLowerCase()
+  if (host === 'deepseek.com' || host.endsWith('.deepseek.com')) {
+    throw new Error(`fork-ops: strata-product.json ${label} must not target upstream DeepSeek domain ${host}`)
+  }
+  if (
+    parsedUrl.protocol !== 'https:'
+    || host !== 'github.com'
+    || parsedUrl.port !== ''
+    || parsedUrl.username !== ''
+    || parsedUrl.password !== ''
+    || parsedUrl.search !== ''
+    || parsedUrl.hash !== ''
+  ) {
+    throw new Error(
+      `fork-ops: strata-product.json ${label} ${JSON.stringify(value)} must be an https://github.com/<owner>/<repo> URL`,
+    )
+  }
+  const pathMatch = /^\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/u.exec(parsedUrl.pathname)
+  if (
+    pathMatch === null
+    || pathMatch[1] === undefined
+    || pathMatch[2] === undefined
+    || pathMatch[1] === '.'
+    || pathMatch[1] === '..'
+    || pathMatch[2] === '.'
+    || pathMatch[2] === '..'
+  ) {
+    throw new Error(
+      `fork-ops: strata-product.json ${label} ${JSON.stringify(value)} must match https://github.com/<owner>/<repo>[.git]`,
+    )
+  }
+  const owner = pathMatch[1].toLowerCase()
+  const repo = pathMatch[2].toLowerCase()
+  if (
+    `${owner}/${repo}` === 'deepseek-ai/deepseek-harness'
+    || owner === 'deepseek-ai'
+    || owner === 'deepseek-harness'
+  ) {
+    throw new Error(
+      `fork-ops: strata-product.json ${label} must not target upstream repository ${pathMatch[1]}/${pathMatch[2]}`,
+    )
+  }
+  if (
+    upstreamRepository !== undefined
+    && trimmed.replace(/\.git\/?$/iu, '').toLowerCase() === upstreamRepository.trim().replace(/\.git\/?$/iu, '').toLowerCase()
+  ) {
+    throw new Error(`fork-ops: strata-product.json ${label} must not equal upstreamRepository`)
+  }
+  return trimmed
+}
+
 function readProductManifest(repoRoot: string): StrataProductManifest {
   const manifestPath = join(repoRoot, PRODUCT_MANIFEST_FILENAME)
   const record = parseJsonRecord(manifestPath)
@@ -317,11 +395,17 @@ function readProductManifest(repoRoot: string): StrataProductManifest {
   if (typeof record.upstreamRepository !== 'string' || record.upstreamRepository.trim() === '') {
     throw new Error('fork-ops: strata-product.json upstreamRepository must be a non-empty string')
   }
+  const releaseRepository = validateReleaseRepository(
+    record.releaseRepository,
+    record.upstreamRepository,
+    'releaseRepository',
+  )
   return {
     productName: record.productName,
     productVersion,
     upstreamBaseTag,
     upstreamRepository: record.upstreamRepository,
+    releaseRepository,
   }
 }
 
@@ -449,6 +533,7 @@ function formatStatusHuman(report: ForkStatusReport): string {
     `Product: ${report.productName} ${report.productVersion}`,
     `Engine: DSH ${report.engineVersion} (base tag: ${report.upstreamBaseTag})`,
     `Upstream repository: ${report.upstreamRepository}`,
+    `Release repository: ${report.releaseRepository}`,
     `Methodology submodule: ${report.methodologyRevision}`,
     `Override commits (${report.upstreamBaseTag}..HEAD): ${String(report.overrideCommitCount)}`,
     `Working tree: ${report.workingTreeClean ? 'clean' : `dirty (${String(report.dirtyEntriesCount)} paths)`}`,
@@ -494,6 +579,7 @@ export function getForkStatus(repoRoot: string = DEFAULT_REPO_ROOT): ForkStatusR
     engineVersion,
     upstreamBaseTag: manifest.upstreamBaseTag,
     upstreamRepository: manifest.upstreamRepository,
+    releaseRepository: manifest.releaseRepository,
     strataPackages,
     methodologyRevision,
     overrideCommitCount,
@@ -537,6 +623,7 @@ export function bumpStrataVersion(options: BumpStrataVersionOptions): BumpStrata
     productVersion: nextVersion,
     upstreamBaseTag: nextUpstreamBaseTag,
     upstreamRepository: manifest.upstreamRepository,
+    releaseRepository: manifest.releaseRepository,
   }
 
   const writes: Array<{ readonly filePath: string; readonly content: string }> = [
@@ -656,7 +743,7 @@ export function auditForkOverrides(repoRoot: string = DEFAULT_REPO_ROOT): AuditO
       id: 'product-version-parity',
       ok: parityFailures.length === 0,
       detail: parityFailures.length === 0
-        ? `strata-product.json and ${String(strataPackages.length)} @strata/* package(s) match ${manifest.productVersion}`
+        ? `strata-product.json (${manifest.releaseRepository}) and ${String(strataPackages.length)} @strata/* package(s) match ${manifest.productVersion}`
         : parityFailures.join('; '),
     })
   } catch (error) {

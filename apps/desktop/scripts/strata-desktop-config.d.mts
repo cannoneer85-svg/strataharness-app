@@ -6,12 +6,16 @@ export const STRATA_PRODUCT_MANIFEST_FILENAME: 'strata-product.json'
 /** Environment variable overriding `productVersion` during local updater qualification runs. */
 export const STRATA_PRODUCT_VERSION_ENV: 'STRATA_PRODUCT_VERSION'
 
+/** Environment variable overriding `releaseRepository` during packaging or update tests. */
+export const STRATA_RELEASE_REPOSITORY_ENV: 'STRATA_RELEASE_REPOSITORY'
+
 /** Validated root `strata-product.json` manifest fields. */
 export interface StrataProductManifest {
   readonly productName: string
   readonly productVersion: string
   readonly upstreamBaseTag: string
   readonly upstreamRepository: string
+  readonly releaseRepository: string
 }
 
 /** Shipped desktop product name across Electron menus, dialogs, bundles, and installers. */
@@ -100,6 +104,15 @@ export function strataBundledExtraResources(repositoryRoot: string): ReadonlyArr
 }>
 
 /**
+ * Validate a canonical HTTPS GitHub release repository URL (`https://github.com/<owner>/<repo>[.git]`)
+ * and reject upstream DeepSeek repositories or domains.
+ * @param value - Candidate repository URL string.
+ * @param label - Field or variable name used in diagnostics.
+ * @returns Validated HTTPS GitHub repository URL.
+ */
+export function validateStrataReleaseRepository(value: unknown, label?: string): string
+
+/**
  * Read and validate the root `strata-product.json` manifest.
  * @param repositoryRoot - Monorepo root directory containing `strata-product.json`.
  * @returns Validated product manifest.
@@ -113,3 +126,11 @@ export function readStrataProductManifest(repositoryRoot?: string): StrataProduc
  * @returns Validated StrataHarness product SemVer string.
  */
 export function resolveStrataProductVersion(env?: NodeJS.ProcessEnv, repositoryRoot?: string): string
+
+/**
+ * Resolve the canonical StrataHarness GitHub release repository URL for packaged desktop metadata.
+ * @param env - Environment that may define `STRATA_RELEASE_REPOSITORY`.
+ * @param repositoryRoot - Monorepo root directory containing `strata-product.json`.
+ * @returns Validated HTTPS GitHub release repository URL.
+ */
+export function resolveStrataReleaseRepository(env?: NodeJS.ProcessEnv, repositoryRoot?: string): string

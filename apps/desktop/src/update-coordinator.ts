@@ -3,13 +3,213 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
-import electronUpdater, { type AppUpdater, type ProgressInfo, type UpdateInfo } from 'electron-updater'
+import electronUpdater, { type AppUpdater } from 'electron-updater'
 import { gt, valid } from 'semver'
+import { GitHubReleaseUpdater, type SpawnInstallerProcess } from './github-release-updater.ts'
 import type { DesktopUpdateState } from './ipc.ts'
+import { desktopReleaseRepository } from './update-channel.ts'
 import { DesktopUpdateHttpExecutor } from './update-http-executor.ts'
 import { DesktopUpdatePreparationError } from './update-error.ts'
 
 const { autoUpdater } = electronUpdater
+
+/** Progress payload emitted during installer download and verification. */
+export interface DesktopUpdaterProgress {
+  /** Download completion percentage (`0` through `100`). */
+  readonly percent: number
+}
+
+/** Downloaded release metadata emitted once platform verification succeeds. */
+export interface DesktopUpdaterDownloadedInfo {
+  /** Verified SemVer release version. */
+  readonly version: string
+}
+
+/** Result returned by an updater check. */
+export interface DesktopUpdaterCheckResult {
+  /** Whether a newer release is available. */
+  readonly isUpdateAvailable?: boolean
+  /** Release metadata reported by the update feed. */
+  readonly updateInfo: {
+    /** Canonical SemVer version string. */
+    readonly version: string
+  }
+}
+
+/** Updater contract shared by `electron-updater` and `GitHubReleaseUpdater`. */
+export interface DesktopAppUpdater {
+  /** Whether updates download automatically on check; always set to `false` by `DesktopUpdateCoordinator`. */
+  autoDownload: boolean
+  /** Whether updates install automatically on app quit; always set to `false` by `DesktopUpdateCoordinator`. */
+  autoInstallOnAppQuit: boolean
+  /** Active update channel (`'nightly'` or `'latest'`). */
+  channel: string | null
+  /** Whether prerelease versions are eligible on the active channel. */
+  allowPrerelease: boolean
+  /** Whether version downgrades are permitted; always set to `false` by `DesktopUpdateCoordinator`. */
+  allowDowngrade: boolean
+  /**
+   * Check the configured update source for a newer version without downloading it.
+   * @returns Check result or `null` when no result was returned.
+   */
+  checkForUpdates(): Promise<DesktopUpdaterCheckResult | null>
+  /**
+   * Download and verify the candidate update artifact.
+   * @returns Resolved download artifact descriptor(s).
+   */
+  downloadUpdate(): Promise<unknown>
+  /**
+   * Launch the verified installer or disk image and quit the application.
+   * @param isSilent - Whether to run the installer silently on supported platforms.
+   * @param isForceRunAfter - Whether to relaunch the application after installation.
+   */
+  quitAndInstall(isSilent?: boolean, isForceRunAfter?: boolean): void
+  /**
+   * Subscribe to download progress updates.
+   * @param event - Progress event name.
+   * @param listener - Progress callback.
+   * @returns The updater instance.
+   */
+  on(event: 'download-progress', listener: (progress: DesktopUpdaterProgress) => void): this
+  /**
+   * Subscribe to verified download completion.
+   * @param event - Downloaded event name.
+   * @param listener - Downloaded callback.
+   * @returns The updater instance.
+   */
+  on(event: 'update-downloaded', listener: (info: DesktopUpdaterDownloadedInfo) => void): this
+  /**
+   * Subscribe to asynchronous installer handoff errors.
+   * @param event - Error event name.
+   * @param listener - Error callback.
+   * @returns The updater instance.
+   */
+  on(event: 'error', listener: (error: Error) => void): this
+  /**
+   * Unsubscribe from download progress updates.
+   * @param event - Progress event name.
+   * @param listener - Progress callback.
+   * @returns The updater instance.
+   */
+  off(event: 'download-progress', listener: (progress: DesktopUpdaterProgress) => void): this
+  /**
+   * Unsubscribe from verified download completion.
+   * @param event - Downloaded event name.
+   * @param listener - Downloaded callback.
+   * @returns The updater instance.
+   */
+  off(event: 'update-downloaded', listener: (info: DesktopUpdaterDownloadedInfo) => void): this
+  /**
+   * Unsubscribe from asynchronous installer handoff errors.
+   * @param event - Error event name.
+   * @param listener - Error callback.
+   * @returns The updater instance.
+   */
+  off(event: 'error', listener: (error: Error) => void): this
+  /**
+   * Emit an updater event.
+   * @param event - Event name.
+   * @param args - Event arguments.
+   * @returns `true` if the event had listeners.
+   */
+  emit(event: string, ...args: unknown[]): boolean
+}
+
+/** Options for selecting between `electron-updater` (`app-update.yml`) and `GitHubReleaseUpdater` (`dshReleaseRepository`). */
+export interface DesktopUpdateSourceOptions {
+  /** Parsed application `package.json` manifest. */
+  readonly manifest: unknown
+  /** Whether the application is running from a packaged bundle (`app.isPackaged`). */
+  readonly isPackaged?: boolean
+  /** Electron `process.resourcesPath` directory containing `app-update.yml` when present. */
+  readonly resourcesPath?: string
+  /** Callback returning the currently installed application SemVer version. */
+  readonly currentVersion?: () => string
+  /** Target operating system platform; defaults to `process.platform`. */
+  readonly platform?: NodeJS.Platform
+  /** Target CPU architecture; defaults to `process.arch`. */
+  readonly arch?: string
+  /** HTTP inactivity timeout in milliseconds. */
+  readonly timeoutMs?: number
+  /** Injectable `fetch` implementation for GitHub Releases requests. */
+  readonly fetch?: typeof globalThis.fetch
+  /** Injectable `spawn` implementation for Windows `.exe` installer launch. */
+  readonly spawn?: SpawnInstallerProcess
+  /** Injectable macOS `.dmg` opener (`shell.openPath`). */
+  readonly openInstaller?: (filePath: string) => Promise<string>
+  /** Injectable application quit callback (`() => app.quit()`). */
+  readonly quit?: () => void
+  /** Base temporary directory for downloaded installers. */
+  readonly tempRootDir?: string
+}
+
+/** Resolved updater implementation and packaged-source availability predicate. */
+export interface ResolvedDesktopUpdateSource {
+  /** Selected updater adapter (`autoUpdater` or `GitHubReleaseUpdater`). */
+  readonly updater: DesktopAppUpdater
+  /** Predicate reporting whether an update source is configured for this process. */
+  readonly enabled: () => boolean
+  /** Kind of update source selected (`'electron-updater'`, `'github-releases'`, or `'none'`). */
+  readonly kind: 'electron-updater' | 'github-releases' | 'none'
+}
+
+/**
+ * Check whether the packaged application bundle contains an `electron-updater` feed configuration (`resources/app-update.yml`).
+ * @param resourcesPath - Electron `process.resourcesPath` directory.
+ * @returns `true` when `app-update.yml` exists in `resourcesPath`.
+ */
+export function hasPackagedUpdateConfig(resourcesPath: string = process.resourcesPath): boolean {
+  return existsSync(join(resourcesPath, 'app-update.yml'))
+}
+
+/**
+ * Select the desktop update provider according to packaged `app-update.yml` presence and `dshReleaseRepository` metadata.
+ * @param options - Manifest, packaging state, `resourcesPath`, and platform/network hooks.
+ * @returns Active updater instance, `enabled()` predicate, and selected provider kind.
+ */
+export function resolveDesktopUpdateSource(options: DesktopUpdateSourceOptions): ResolvedDesktopUpdateSource {
+  const isPackaged = options.isPackaged ?? app.isPackaged
+  const resourcesPath = options.resourcesPath ?? process.resourcesPath
+  const releaseRepository = desktopReleaseRepository(options.manifest)
+  if (!isPackaged) {
+    return {
+      updater: autoUpdater,
+      enabled: () => false,
+      kind: 'none',
+    }
+  }
+  if (hasPackagedUpdateConfig(resourcesPath)) {
+    return {
+      updater: autoUpdater,
+      enabled: () => true,
+      kind: 'electron-updater',
+    }
+  }
+  if (releaseRepository !== undefined) {
+    const updater = new GitHubReleaseUpdater({
+      repository: releaseRepository,
+      currentVersion: options.currentVersion ?? (() => app.getVersion()),
+      ...(options.platform === undefined ? {} : { platform: options.platform }),
+      ...(options.arch === undefined ? {} : { arch: options.arch }),
+      ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+      ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+      ...(options.spawn === undefined ? {} : { spawn: options.spawn }),
+      ...(options.openInstaller === undefined ? {} : { openInstaller: options.openInstaller }),
+      ...(options.quit === undefined ? {} : { quit: options.quit }),
+      ...(options.tempRootDir === undefined ? {} : { tempRootDir: options.tempRootDir }),
+    })
+    return {
+      updater,
+      enabled: () => true,
+      kind: 'github-releases',
+    }
+  }
+  return {
+    updater: autoUpdater,
+    enabled: () => false,
+    kind: 'none',
+  }
+}
 
 /** Owns one updater target until its download and installation settle. */
 export class DesktopUpdateCoordinator {
@@ -21,13 +221,13 @@ export class DesktopUpdateCoordinator {
   private downloadOperation: Promise<DesktopUpdateState> | undefined
   private installOperation: Promise<DesktopUpdateState> | undefined
 
-  private readonly onProgress = (progress: ProgressInfo): void => {
+  private readonly onProgress = (progress: DesktopUpdaterProgress): void => {
     if (this.downloadOperation === undefined || this.downloaded) return
     const percent = Math.min(100, Math.max(0, progress.percent))
     this.setState({ phase: percent >= 100 ? 'verifying' : 'downloading', ...this.target(), percent })
   }
 
-  private readonly onDownloaded = (info: UpdateInfo): void => {
+  private readonly onDownloaded = (info: DesktopUpdaterDownloadedInfo): void => {
     if (this.downloadOperation === undefined || info.version !== this.candidate) return
     this.downloaded = true
   }
@@ -45,14 +245,14 @@ export class DesktopUpdateCoordinator {
    * @param updater - Process-owned Electron updater, replaceable at the network/platform test boundary.
    * @param enabled - Whether this process has a packaged update source.
    * @param currentVersion - Actual installed application version.
-   * @param channel - Installed package channel; omitted test/local callers retain nightly.
    * @param downloadResult - Once per completed download attempt, including platform preparation failures.
+   * @param channel - Installed package channel; omitted test/local callers retain nightly.
    */
   constructor(
     private readonly publish: (state: DesktopUpdateState) => DesktopUpdateState,
     private readonly beforeRestart: () => Promise<boolean>,
-    private readonly updater: AppUpdater = autoUpdater,
-    private readonly enabled: () => boolean = () => app.isPackaged && existsSync(join(process.resourcesPath, 'app-update.yml')),
+    private readonly updater: DesktopAppUpdater = autoUpdater,
+    private readonly enabled: () => boolean = () => app.isPackaged && hasPackagedUpdateConfig(process.resourcesPath),
     private readonly currentVersion: () => string = () => app.getVersion(),
     private readonly downloadResult?: (success: boolean, reason?: string) => void,
     private readonly channel: 'nightly' | 'latest' = 'nightly',

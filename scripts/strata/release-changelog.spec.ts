@@ -88,6 +88,7 @@ function initReleaseGitFixture(overrides?: {
     productVersion,
     upstreamBaseTag,
     upstreamRepository: 'https://github.com/deepseek-ai/deepseek-harness.git',
+    releaseRepository: 'https://github.com/cannoneer85-svg/strataharness-app.git',
   })
   writeText(repoRoot, 'resources/strataharness/AGENTS.md', '# StrataHarness Methodology\n')
   writeText(repoRoot, 'resources/strataharness/.agents/skills/tdd/SKILL.md', '# TDD\n')
@@ -327,6 +328,7 @@ describe('StrataHarness release baseline tag resolver', { timeout: 30_000 }, () 
       productVersion: '1.0.0',
       upstreamBaseTag: 'dsh-v0.2.1-rc.4',
       upstreamRepository: 'https://github.com/deepseek-ai/deepseek-harness.git',
+      releaseRepository: 'https://github.com/cannoneer85-svg/strataharness-app.git',
     })
     expect(resolveReleaseBaselineTag({ repoRoot: nonGitDir, buildVersion: '1.0.0' })).toBeNull()
 
@@ -384,6 +386,7 @@ describe('StrataHarness release changelog collector — platform deltas, filteri
       productVersion: '1.0.0',
       upstreamBaseTag: 'dsh-v0.2.1-rc.4',
       upstreamRepository: 'https://github.com/deepseek-ai/deepseek-harness.git',
+      releaseRepository: 'https://github.com/cannoneer85-svg/strataharness-app.git',
     })
     runGit(repoRoot, ['add', 'strata-product.json'])
     runGit(repoRoot, ['update-index', '--add', '--cacheinfo', `160000,${subHashV1},resources/strataharness`])
@@ -441,6 +444,7 @@ describe('StrataHarness release changelog collector — platform deltas, filteri
       productVersion: '1.1.0',
       upstreamBaseTag: 'dsh-v0.3.0',
       upstreamRepository: 'https://github.com/deepseek-ai/deepseek-harness.git',
+      releaseRepository: 'https://github.com/cannoneer85-svg/strataharness-app.git',
     })
     runGit(repoRoot, ['add', 'strata-product.json'])
     runGit(repoRoot, ['commit', '-m', 'chore(strata): bump product version to 1.1.0'])

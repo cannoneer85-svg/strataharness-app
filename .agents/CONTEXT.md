@@ -87,6 +87,10 @@ _Avoid_: `dsh-v*` (резерв за релизами апстрима)
 Статический HTTPS-источник метаданных `electron-updater` (`strataharness/feeds/<target>/latest*.yml` и подписанных артефактов), полностью изолированный от инфраструктуры DeepSeek и Tencent COS.
 _Avoid_: CDN DeepSeek, Tencent COS
 
+**Репозиторий релизов продукта (`releaseRepository`)**:
+Канонический GitHub-репозиторий дистрибуции `StrataHarness Desktop`, публикующий релизы `strata-v*` с установочными пакетами и `SHA256SUMS.txt` и выступающий штатным источником проверки и загрузки обновлений при отсутствии `app-update.yml`.
+_Avoid_: `upstreamRepository` (репозиторий исходного движка `deepseek-harness`)
+
 **Двухконтурное версионирование (`strata-product.json`)**:
 Разделение продуктовой SemVer-версии `StrataHarness` (`1.0.0` → `1.1.0` → `1.1.1` для установщиков, `app.getVersion()`, UI, тегов `strata-v*` и автообновления) и версии базового движка `@deepseek-ai/dsh-*` (`upstreamBaseTag`), предотвращающее конфликты слияния в манифестах апстрима.
 _Avoid_: перезапись версии в пакетах `@deepseek-ai/dsh-*`

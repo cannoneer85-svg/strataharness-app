@@ -35,6 +35,7 @@ import {
   STRATA_MACOS_MICROPHONE_USAGE,
   STRATA_NSIS_INSTALLER_LANGUAGES,
   resolveStrataProductVersion,
+  resolveStrataReleaseRepository,
   strataArtifactNameTemplate,
   strataBundledExtraResources,
 } from './strata-desktop-config.mjs'
@@ -120,6 +121,7 @@ export function createElectronBuilderConfig(
   const repositoryRoot = fileURLToPath(new URL('../../..', import.meta.url))
   const dshEngineVersion = JSON.parse(readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8')).version
   const productVersion = resolveStrataProductVersion(env, repositoryRoot)
+  const dshReleaseRepository = resolveStrataReleaseRepository(env, repositoryRoot)
   const buildVersion = resolveDesktopBuildVersion(env, productVersion)
   if (update?.channel === 'latest' && buildVersion.includes('-')) throw new Error('desktop package: latest requires a stable version')
   const packaged = resolveDesktopBuildCommit(env)
@@ -130,6 +132,7 @@ export function createElectronBuilderConfig(
       name: STRATA_DESKTOP_PACKAGE_NAME,
       version: buildVersion,
       dshEngineVersion,
+      dshReleaseRepository,
       dshDesktopAppId: appId,
       dshDesktopUpdateChannel: update?.channel ?? 'nightly',
       ...(policy === undefined ? {} : { dshMandatoryUpdatePolicy: policy }),

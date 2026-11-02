@@ -8,6 +8,7 @@
 - Спецификация инфраструктуры релизов и `Soft-Fork`: [`docs/specs/0001-strata-ci-release-and-fork-sync-spec.md`](../specs/0001-strata-ci-release-and-fork-sync-spec.md)
 - Спецификация автогенерации списка изменений релиза и скилла выпуска версий: [`docs/specs/0002-strata-release-changelog-and-skill-spec.md`](../specs/0002-strata-release-changelog-and-skill-spec.md)
 - Спецификация полной русской локализации: [`docs/specs/0003-russian-localization-spec.md`](../specs/0003-russian-localization-spec.md)
+- Спецификация автообновления через GitHub Releases и компактных подписей: [`docs/specs/0005-github-releases-auto-update-spec.md`](../specs/0005-github-releases-auto-update-spec.md)
 - Ручной интерактивный скилл выпуска релиза: [`.agents/skills/strata-release/SKILL.md`](../../.agents/skills/strata-release/SKILL.md)
 - Архитектурные решения (Agent Notes):
   - [Dual-track product versioning for StrataHarness Desktop](../../.agents/notes/implemented/architecture/2026-10-29-strata-dual-track-product-versioning.md)
@@ -256,10 +257,10 @@ pnpm run strata:changelog -- --version 1.0.1 --base strata-v1.0.0 --target-ref H
 
 | Запрошенный `signing_mode` | Сертификаты платформы в Secrets | `DOWNLOAD_PROD_ORIGIN` задан | Итоговый режим и поведение сборки |
 |---|---|---|---|
-| `auto` (по умолчанию) | Отсутствуют | Не важен | Чистый откат в `unsigned`: артефакты с суффиксом `-unsigned` (`.exe`, `.dmg`, `.zip`), `publish: null` (без `latest*.yml`) |
-| `auto` (по умолчанию) | Присутствуют (полный набор) | Нет | Режим `signed`: подписанные (и нотаризованные на macOS) бинарные файлы без суффикса `-unsigned`, `publish: null` (раздача через GitHub Releases без CDN-автообновления) |
-| `auto` (по умолчанию) | Присутствуют (полный набор) | Да (`https://...`) | Полный боевой режим `signed`: подписанные установщики + генерация `latest.yml` / `latest-mac.yml` со ссылкой на `${DOWNLOAD_PROD_ORIGIN}/strataharness/feeds/<target>/` |
-| `unsigned` | Любые | Не важен | Принудительная `unsigned`-сборка без обращения к сертификатам |
+| `auto` (по умолчанию) | Отсутствуют | Не важен | Чистый откат в `unsigned`: артефакты с суффиксом `-unsigned` (`.exe`, `.dmg`, `.zip`), `publish: null` (без `latest*.yml`), доставка обновлений через встроенный `GitHubReleaseUpdater` (`dshReleaseRepository` + верификация `SHA256SUMS.txt`) |
+| `auto` (по умолчанию) | Присутствуют (полный набор) | Нет | Режим `signed`: подписанные (и нотаризованные на macOS) бинарные файлы без суффикса `-unsigned`, `publish: null` (доставка обновлений через `GitHubReleaseUpdater` с приоритетом подписанных установщиков и проверкой `SHA256SUMS.txt`) |
+| `auto` (по умолчанию) | Присутствуют (полный набор) | Да (`https://...`) | Полный боевой режим `signed`: подписанные установщики + генерация `latest.yml` / `latest-mac.yml` со ссылкой на `${DOWNLOAD_PROD_ORIGIN}/strataharness/feeds/<target>/` (`electron-updater`) |
+| `unsigned` | Любые | Не важен | Принудительная `unsigned`-сборка без обращения к сертификатам (обновления через `GitHubReleaseUpdater` и `SHA256SUMS.txt`) |
 | `signed` | Отсутствует хотя бы один обязательный секрет | Любой | Немедленный `fail-fast` отказ на шаге `preflight` с перечислением недостающих переменных |
 
 ### Полный справочник секретов GitHub Actions
@@ -301,9 +302,12 @@ pnpm run strata:changelog -- --version 1.0.1 --base strata-v1.0.0 --target-ref H
 
 ---
 
-## 7. Настройка статического HTTPS-канала автообновлений и S3 / Cloudflare R2 / MinIO
+## 7. Двухконтурное автообновление клиентов: GitHub Releases и статический HTTPS-канал (`S3` / `Cloudflare R2` / `MinIO`)
 
-Автообновление установленных клиентов `StrataHarness Desktop` работает через стандартный `generic` HTTPS-провайдер `electron-updater` и включается **только для подписанных (`signed`) сборок**, чтобы исключить фоновую установку неподписанных бинарных файлов.
+Обновление установленных клиентов `StrataHarness Desktop` работает по двухконтурной схеме с автоматическим выбором провайдера при старте упакованного приложения:
+
+1. **Контур GitHub Releases (`GitHubReleaseUpdater`, активен по умолчанию без внешнего CDN):** когда `resources/app-update.yml` отсутствует (`unsigned`-сборки или `signed`-сборки без `DOWNLOAD_PROD_ORIGIN`), а в [`strata-product.json`](../../strata-product.json) задан `releaseRepository` (запечатывается упаковщиком в `extraMetadata.dshReleaseRepository`), координатор обновлений автоматически подключает [`apps/desktop/src/github-release-updater.ts`](../../apps/desktop/src/github-release-updater.ts). Адаптер запрашивает опубликованные релизы `strata-v<version>` из GitHub Releases API целевого репозитория (отбрасывая черновики `draft: true`, а на стабильной установленной версии — и пререлизы), выбирает платформенный установщик (`win-x64` → `.exe`, `mac-arm64` / `mac-x64` → `.dmg`) с приоритетом подписанного файла (`strataharness-<version>-<target>.<ext>`) перед неподписанным (`strataharness-<version>-<target>-unsigned.<ext>`), скачивает его во временный каталог с трансляцией прогресса `0%…100%`, сверяет контрольную сумму `SHA-256` с файлом `SHA256SUMS.txt` из того же релиза (немедленно удаляя временный файл при расхождении или отсутствии `SHA256SUMS.txt`) и после штатной остановки активных задач (`beforeRestart`) запускает `.exe` (`detached: true`) на Windows либо открывает `.dmg` (`shell.openPath`) на macOS с закрытием приложения.
+2. **Статический HTTPS-контур (`electron-updater` `generic`, включается при наличии сертификатов и `DOWNLOAD_PROD_ORIGIN`):** когда сборка выполнена в режиме `signed` и задан `DOWNLOAD_PROD_ORIGIN`, упаковщик генерирует `resources/app-update.yml`, и приложение автоматически переключается на штатный `electron-updater` без изменений в коде.
 
 ### Маршрутизация URL фида
 

@@ -34,7 +34,7 @@ import { readDeviceInfo } from './device-info.ts'
 import { desktopUpdateReadyConfirmation, formatDesktopAboutDetail, formatDesktopMessage, resolveDesktopLocale, resolveDesktopStartupLocale } from './locale.ts'
 import { claimDesktopSingleInstance } from './single-instance.ts'
 import { desktopEngineVersion, desktopUpdateChannel } from './update-channel.ts'
-import { DesktopUpdateCoordinator } from './update-coordinator.ts'
+import { DesktopUpdateCoordinator, resolveDesktopUpdateSource } from './update-coordinator.ts'
 import { DesktopCommandManager } from './command-management.ts'
 import { serveWebDocument, authenticateWebHost, forwardWebRequest } from './web-document.ts'
 import { DesktopFatalRecovery } from './fatal-recovery.ts'
@@ -585,6 +585,14 @@ async function main(): Promise<void> {
   const manifest: unknown = JSON.parse(await readFile(join(app.getAppPath(), 'package.json'), 'utf8'))
   const updateChannel = desktopUpdateChannel(manifest)
   const engineVersion = desktopEngineVersion(manifest)
+  const updateSource = resolveDesktopUpdateSource({
+    manifest,
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    currentVersion: () => app.getVersion(),
+    openInstaller: filePath => shell.openPath(filePath),
+    quit: () => { app.quit() },
+  })
   const updates = new DesktopUpdateCoordinator(
     publishUpdate,
     async () => {
@@ -636,7 +644,9 @@ async function main(): Promise<void> {
       }
       return true
     },
-    undefined, undefined, undefined,
+    updateSource.updater,
+    updateSource.enabled,
+    () => app.getVersion(),
     (success, reason) => { void track('desktop_upgrade_download_result', { is_success: success, ...reason === undefined ? {} : { error_reason: reason } }) },
     updateChannel,
   )

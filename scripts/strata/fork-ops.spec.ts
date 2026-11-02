@@ -80,6 +80,7 @@ function populateCompliantFilesystem(repoRoot: string): void {
     productVersion: '1.0.0',
     upstreamBaseTag: 'dsh-v0.2.1-rc.4',
     upstreamRepository: 'https://github.com/deepseek-ai/deepseek-harness.git',
+    releaseRepository: 'https://github.com/cannoneer85-svg/strataharness-app.git',
   })
   writeJson(repoRoot, 'packages/strata/locale-ru/package.json', {
     name: '@strata/locale-ru',
@@ -198,6 +199,7 @@ function createCompliantForkFixture(): string {
     productVersion: '1.0.0',
     upstreamBaseTag: 'dsh-v0.2.1-rc.4',
     upstreamRepository: 'https://github.com/deepseek-ai/deepseek-harness.git',
+    releaseRepository: 'https://github.com/cannoneer85-svg/strataharness-app.git',
   })
   writeJson(repoRoot, 'packages/strata/locale-ru/package.json', {
     name: '@strata/locale-ru',
@@ -341,6 +343,7 @@ describe('Soft-Fork Operations CLI — status & version', { timeout: 30_000 }, (
     expect(readJsonRecord(repoRoot, 'strata-product.json')).toMatchObject({
       productVersion: '2.0.0',
       upstreamBaseTag: 'dsh-v0.3.0',
+      releaseRepository: 'https://github.com/cannoneer85-svg/strataharness-app.git',
     })
     expect(readJsonRecord(repoRoot, 'packages/strata/locale-ru/package.json').version).toBe('2.0.0')
     expect(readJsonRecord(repoRoot, 'packages/strata/product-bundle/package.json').version).toBe('2.0.0')
@@ -528,6 +531,29 @@ describe('Soft-Fork Operations CLI — update-methodology & audit-overrides', { 
     expect(unwiredLocaleRuReport.violations.join('\n')).toContain('does not insert "@strata/locale-ru"')
     expect(unwiredLocaleRuReport.violations.join('\n')).toContain('defaultLocale: "ru"')
     expect(unwiredLocaleRuReport.violations.join('\n')).toContain('localeOrder: ["ru", "en", "zh"]')
+
+    // (f) Invalid, empty, non-HTTPS/non-GitHub, or upstream releaseRepository in strata-product.json
+    populateCompliantFilesystem(repoRoot)
+    for (const invalidReleaseRepo of [
+      '',
+      '   ',
+      'http://github.com/cannoneer85-svg/strataharness-app.git',
+      'https://gitlab.com/cannoneer85-svg/strataharness-app.git',
+      'https://github.com/deepseek-ai/deepseek-harness.git',
+      'https://github.com/deepseek-ai/deepseek-harness',
+      'https://download.deepseek.com/strataharness-app.git',
+    ]) {
+      writeJson(repoRoot, 'strata-product.json', {
+        productName: 'StrataHarness',
+        productVersion: '1.0.0',
+        upstreamBaseTag: 'dsh-v0.2.1-rc.4',
+        upstreamRepository: 'https://github.com/deepseek-ai/deepseek-harness.git',
+        releaseRepository: invalidReleaseRepo,
+      })
+      const invalidRepoReport = auditForkOverrides(repoRoot)
+      expect(invalidRepoReport.ok, `expected audit failure for ${invalidReleaseRepo}`).toBe(false)
+      expect(invalidRepoReport.violations.join('\n')).toMatch(/releaseRepository/u)
+    }
   })
 })
 
@@ -552,6 +578,7 @@ describe('Soft-Fork Operations CLI — check-upstream & prepare-upstream-sync', 
       productVersion: '1.0.0',
       upstreamBaseTag: 'dsh-v0.2.1-rc.4',
       upstreamRepository: upstreamRepo,
+      releaseRepository: 'https://github.com/cannoneer85-svg/strataharness-app.git',
     })
     writeText(forkRepo, 'packages/boot/app-boot/src/profile.ts', 'export const BUNDLES = ["base", "@strata/product-bundle"]\n')
     runGit(forkRepo, ['add', 'strata-product.json', 'packages/boot/app-boot/src/profile.ts'])
