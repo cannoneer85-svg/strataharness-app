@@ -126,6 +126,7 @@
       "@strata/locale-ru": ["./packages/strata/locale-ru/src/index.ts"],
       "@strata/locale-ru/client": ["./packages/strata/locale-ru/src/client/index.ts"],
       "@strata/product-bundle": ["./packages/strata/product-bundle/src/index.ts"],
+      "@strata/product-bundle/workspace-scaffold": ["./packages/strata/product-bundle/src/workspace-scaffold.ts"],
       "@strata/ui-brand": ["./packages/strata/ui-brand/src/index.ts"],
       "@strata/ui-brand/client": ["./packages/strata/ui-brand/src/client/index.ts"],
       "@deepseek-ai/cosmokit": ["./vendor/cosmokit/src"],

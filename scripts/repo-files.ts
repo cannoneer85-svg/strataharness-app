@@ -35,15 +35,17 @@ export function isArchivedAgentNotePath(path: string): boolean {
 }
 
 const OPERATIONAL_DOC_PREFIXES = [
+  'docs/adr/',
   'docs/analysis/',
   'docs/handoff/',
+  'docs/research/',
   'docs/specs/',
   'docs/strata/',
 ] as const
 
 /**
  * Whether a repository path belongs to StrataHarness operational artifacts
- * (`docs/{analysis,handoff,specs,strata}/`) rather than standing product or agent documentation.
+ * (`docs/{adr,analysis,handoff,research,specs,strata}/`) rather than standing product or agent documentation.
  * @param path - Repository-relative path with forward or platform slashes.
  * @returns True when the path lies inside one of the operational artifact directories.
  */

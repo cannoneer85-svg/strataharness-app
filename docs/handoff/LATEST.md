@@ -1,44 +1,41 @@
-<!-- Copied from docs/handoff/2026-11-16-fix-asar-gitkeep-and-ci-artifact-quota.md -->
-# Передача контекста: Исправление целостности ASAR (.gitkeep) и квоты артефактов CI (fix-asar-gitkeep-and-ci-artifact-quota)
+Копия актуального handoff-документа: [2026-11-17-strata-workflow-full-integration.md](2026-11-17-strata-workflow-full-integration.md).
 
-**Дата:** 2026-11-16
+# Передача контекста: Полная интеграция воркфлоу StrataHarness, исправление профиля `strata`, инсталлятора и таймаута `office-kit` (strata-workflow-full-integration)
+
+**Дата:** 2026-11-17
 **Целевая ветка:** `main`
-**Текущий тег продукта в манифесте:** `1.1.0` (`strata-v1.1.0` занят упавшей сборкой; следующий релиз планируется как `1.1.1` / `strata-v1.1.1`)
+**Текущий тег продукта в манифесте:** `1.1.1` (предыдущая попытка релиза `strata-v1.1.1` выявила обрезку кнопок русского инсталлятора Windows NSIS, сбой `Unknown agent preset: strata` на старых профилях и таймаут `office-kit` на `mac-x64`)
 **Базовый тег апстрима:** `dsh-v0.2.2-rc.3`
 **Сабмодуль методологии:** `v1.4.6`
 
 ---
 
-## 1. Состояние (State)
+## Состояние
 
-- **Цель:** Устранить две причины падения облачного релиза `strata-v1.1.0` (GitHub Actions run `43859697161`): (1) `Error: desktop runtime: ASAR integrity verification failed` при упаковке Desktop под Windows и macOS (`win-x64`, `mac-arm64`, `mac-x64`) из-за попадания `docs/analysis/.gitkeep` и `docs/specs/.gitkeep` в инвентарь `desktop-runtime.json` и последующего отсеивания `.gitkeep` обходом `builder-util`; (2) `Failed to CreateArtifact: Artifact storage quota has been hit` в приватном репозитории `cannoneer85-svg/strataharness-app` из-за исчерпания 500-МБ квоты старыми промежуточными артефактами `v1.0.2` с 14-дневным сроком хранения.
-- **Достигнутый этап:** Этап 6 (Закрытие задачи / `close-task`), завершены Этап 1 (`Minor`), Этап 4 (`In-Place` + сквозная локальная проверка `win-x64 --dir --unsigned`) и Этап 5 (`/code-review` с исправлением замечания Adversary).
+- **Цель:** Завершить интеграцию воркфлоу StrataHarness в приложение и репозиторий ([спека 0007](../specs/0007-strata-workflow-full-integration-spec.md)): выстроить линейку из 4 пресетов во главе со «Стандартным режимом», устранить ошибку `Unknown agent preset: strata` на обновлённых профилях `1.0.x` (и новых, и возобновляемых сессиях), автоматизировать подготовку каркаса проектной памяти без ручного `/init-project` и настроить автоподгрузку `CODING_STANDARDS.md`, привести репозиторий к эталону `v1.4.6`, исправить геометрию русских кнопок установщика Windows NSIS и таймаут LibreOffice при упаковке `mac-x64`.
+- **Достигнутый этап:** Этап 6 (Закрытие задачи `/close-task`); все 3 тикета (`01`, `02`, `03`), финальная верификация (Этап 4) и параллельное ревью по осям `Standards`, `Spec` и `Adversary` (Этап 5) полностью завершены.
 - **Что сделано:**
-  1. В [`apps/desktop/scripts/runtime-file-policy.ts`](../../apps/desktop/scripts/runtime-file-policy.ts) добавлено исключение файлов `.DS_Store` и `.gitkeep` при материализации `dsh/node_modules` до запечатывания `desktop-runtime.json`; регрессионный тест добавлен в [`apps/desktop/tests/runtime-file-policy.spec.ts`](../../apps/desktop/tests/runtime-file-policy.spec.ts).
-  2. В [`scripts/stage-dsh-docs.ts`](../../scripts/stage-dsh-docs.ts) из стейджинга документации `@deepseek-ai/dsh` исключены операционные каталоги Strata (`analysis`, `specs`, `handoff`, `strata`) и файлы `.DS_Store` / `.gitkeep`; регрессионные проверки добавлены в [`scripts/stage-dsh-docs.spec.ts`](../../scripts/stage-dsh-docs.spec.ts).
-  3. В [`.github/workflows/strata-windows-package.yml`](../../.github/workflows/strata-windows-package.yml) и [`.github/workflows/strata-macos-package.yml`](../../.github/workflows/strata-macos-package.yml) срок хранения `strata-dist-*` и `strata-packaging-runs-*` снижен с `14` до `1` дня (`retention-days: 1`), а загрузка диагностических логов переведена в `continue-on-error: true`.
-  4. В [`.github/workflows/strata-release.yml`](../../.github/workflows/strata-release.yml) джобе `publish` выдано минимальное право `actions: write` и добавлен завершающий шаг (`if: success()`, `continue-on-error: true`) автоудаления временных артефактов `strata-dist-*` и `strata-packaging-runs-*` текущего `run_id` с использованием `--paginate` и явной проверкой ошибок `gh api` (вместо `<(...)` подстановки); security- и контрактные тесты обновлены в [`scripts/strata/strata-workflows.spec.ts`](../../scripts/strata/strata-workflows.spec.ts).
-  5. Обновлена документация жизненного цикла временных сборочных артефактов в [`docs/strata/fork-maintenance.md`](../strata/fork-maintenance.md).
-- **Решения и нюансы (Gotchas & Decisions):**
-  - Местные 14-дневные артефакты релиза `v1.0.2` истекли `2026-11-16T13:01Z` (текущее занятое место в API `actions/artifacts` равно `0 МБ`), но биллинговый кэш квоты GitHub пересчитывается раз в `6–12` часов; повторный облачный релиз следует запускать после обнуления биллинговой квоты на стороне GitHub.
-  - Тег `strata-v1.1.0` уже опубликован в `origin` на сборке с ошибкой упаковки и не подлежит перезаписи, при этом GitHub Release `v1.1.0` не создавался; следующий выпуск оформляется как **`1.1.1` (`strata-v1.1.1`)** со сводным русским резюме, объединяющим продуктовые изменения [`docs/strata/releases/v1.1.0.md`](../strata/releases/v1.1.0.md) и данный фикс упаковки.
-  - Проверен сквозной прогон на Windows: `pnpm --filter @deepseek-ai/dsh-desktop run package -- win-x64 --dir --unsigned --build-version 1.1.0` (`verifyRuntimeArchive`, Host + Office smoke `exit 0`); macOS (`mac-arm64`, `mac-x64`) проверяется в CI при выпуске `v1.1.1`.
+  1. **Линейка из 4 пресетов и авто-каркас проектной памяти:** В [`packages/strata/product-bundle/cordis.patch.yml`](../../packages/strata/product-bundle/cordis.patch.yml) и оверлеях пресетов режим `standard` поставлен первым (`order: 1`, `default: standard`, без `bundledSkillDir`), за ним сгруппированы `strata-developer` (`2`), `strata-analyst` (`3`) и `strata-designer` (`4`), а `preset-minimal`, `preset-ptc` и `preset-cordis` отключены (`disabled: true`, удалены `ptc.patch.yml` и `cordis.patch.yml`). В ролевых пресетах `Strata` до `agent-instructions` смонтирован [`workspace-scaffold.ts`](../../packages/strata/product-bundle/src/workspace-scaffold.ts) (`@strata/product-bundle/workspace-scaffold`), который на `agent/pre-step` с очередью сериализации `scaffoldLocks` и `realpathSync`-канонизацией (защита FS root, `os.homedir()`, `os.tmpdir()`) идемпотентно материализует `.agents/` и `docs/{adr,agents,analysis,handoff,research,specs}/` со стартовыми файлами без `.agents/skills/` и `AGENTS.md`, а `CODING_STANDARDS.md` добавлен в `instructionFileCandidates` во всех 4 активных пресетах. Из Шага 0 `strata-developer` убрано ручное напоминание `/init-project`, а локализация плагина добавлена в `@strata/locale-ru`.
+  2. **Защита алиаса `strata` и атомарная миграция профиля Desktop:** В [`AgentPresetRegistry`](../../packages/preset/agent-preset-registry/src/index.ts) дефолт схемы `Config.aliases` установлен в `{ strata: 'strata-developer' }` с безопасным откатом `defaultId`, а в [`DesktopProjectManager`](../../apps/desktop/src/project-manager.ts) добавлена `migrateLegacyPresetPatch` с атомарной записью через `writeFileAtomic` (`mode: 0o600`, защищённый `try/catch`) для очистки устаревших `default: strata` / `selectedDefault: strata` в `profiles/desktop/cordis.patch.yml` при сохранении пользовательских настроек и выражений `!!js`.
+  3. **Инсталлятор Windows NSIS и таймаут `office-kit`:** В [`pages.nsh`](../../apps/desktop/installer/pages.nsh) и [`theme.nsh`](../../apps/desktop/installer/theme.nsh) `$InstallerChoose` расширен до `240` px (`X = 180`), а `INSTALLER_BUTTON_WIDTH` / `INSTALLER_BUTTON_X` — до `200` / `200`; конфигурация `id: office-kit` (`timeoutMs: 120000`) задана декларативно в [`smoke-runtime.ts`](../../apps/desktop/scripts/smoke-runtime.ts) (`SMOKE_PROFILE_PATCH_YAML`) и в [`packages/strata/product-bundle/cordis.patch.yml`](../../packages/strata/product-bundle/cordis.patch.yml) без правки апстримного `@deepseek-ai/dsh-office-kit`.
+  4. **Эталон репозитория `v1.4.6` и документация:** Созданы корневой [`CODING_STANDARDS.md`](../../CODING_STANDARDS.md), `docs/adr/.gitkeep`, `docs/research/.gitkeep`; обновлены исключения в `stage-dsh-docs.ts`, `repo-files.ts`, `translation-pairing.manifest.json`; синхронизированы `setup-pre-commit` и `migrate-to-shoehorn` (`63` скилла в [`.agents/SKILLS.md`](../../.agents/SKILLS.md) и `.claude/skills/`); актуализированы Agent Notes ([2026-11-15](../../.agents/notes/implemented/architecture/2026-11-15-strata-preset-lineup-and-legacy-aliases.md) и [2026-10-31](../../.agents/notes/implemented/architecture/2026-10-31-strata-russian-localization-pack.md)), package README и графы событий [`docs/event-producer-consumer.md`](../event-producer-consumer.md) и [`docs/event-producer-consumer.zh.md`](../event-producer-consumer.zh.md).
+- **Решения и нюансы:** На Windows запуск полного `doc-sync` требует `DSH_CLI_HELP_CONCURRENCY=1`, чтобы 12 параллельных `tsx`-процессов `gen-cli-help` не упирались в 30-секундный таймаут на `acp --help` (подтверждены 43 из 43 гейтов `doc-sync`, `build` 10/10, `typecheck` 5/5, `lint` 0 ошибок, `test:docs` 21/21, `strata:audit-overrides` 6/6, `Test-Template.ps1` и 191 preflight-тест). В UI собранного Desktop-приложения остаётся только ручная визуальная проверка критерия `AC 10`.
 
 ---
 
-## 2. Открытые тикеты (Open tickets)
+## Открытые тикеты
 
 none
 
 ---
 
-## 3. Следующий шаг (Next step)
+## Следующий шаг
 
-Дождаться пересчёта квоты хранилища GitHub Actions (окно 6–12 часов после `2026-11-16T13:01Z`), затем запустить `/strata-release` на ветке `main` с целевой версией `1.1.1` (`strata-v1.1.1`), включив в русское резюме `docs/strata/releases/v1.1.1.md` все продуктовые улучшения из [`docs/strata/releases/v1.1.0.md`](../strata/releases/v1.1.0.md) и фикс целостности ASAR / очистки артефактов, выполнить подтверждённый `git push --atomic` и после зелёной публикации установщиков в GitHub Releases закрыть Issue #9.
+Выполнить `/strata-release` на ветке `main` для подготовки и выпуска следующего релиза `StrataHarness Desktop` (и при финальной ручной приёмке убедиться по `AC 10`, что в UI отображаются 4 пресета со «Стандартным режимом» по умолчанию, старые и новые сессии открываются без ошибки `Unknown agent preset: strata`, а в ролевых пресетах `Strata` авто-каркас и `/retro` работают сразу).
 
 ---
 
-## 4. Рекомендуемые скиллы (Recommended skills)
+## Рекомендуемые скиллы
 
-- `/strata-release` ([`.agents/skills/strata-release/SKILL.md`](../../.agents/skills/strata-release/SKILL.md)) — поднятие версии до `1.1.1`, подготовка сводного резюме `docs/strata/releases/v1.1.1.md`, локальное тегирование `strata-v1.1.1` и атомарная отправка в `origin`.
-- `dsh-pre-push-checks` ([`.agents/skills/dsh-pre-push-checks/SKILL.md`](../../.agents/skills/dsh-pre-push-checks/SKILL.md)) — проверка области изменений и предпушевых гейтов перед отправкой ветки `main` и тега.
+- `/strata-release` ([`.agents/skills/strata-release/SKILL.md`](../../.agents/skills/strata-release/SKILL.md)) — проверка чистоты дерева, превью changelog, русское описание релиза, локальный тег `strata-v*` и подтверждённый `git push`.
+- `/retro` ([`.agents/skills/retro/SKILL.md`](../../.agents/skills/retro/SKILL.md)) — при необходимости зафиксировать улучшения гейтов или стандартов по итогам цикла.

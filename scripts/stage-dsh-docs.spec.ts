@@ -40,9 +40,15 @@ describe('documentation staging', () => {
     write(source, 'i18n/terminology.md')
     write(source, 'guide/.gitkeep', '')
     write(source, 'guide/.DS_Store', 'finder')
+    write(source, 'adr/.gitkeep', '')
+    write(source, 'adr/0001-example.md')
+    write(source, 'adr/diagram.png', 'png')
     write(source, 'analysis/.gitkeep', '')
     write(source, 'specs/.gitkeep', '')
     write(source, 'handoff/LATEST.md')
+    write(source, 'research/.gitkeep', '')
+    write(source, 'research/notes.md')
+    write(source, 'research/data.json', '{}')
     write(source, 'strata/fork-maintenance.md')
 
     await stageDshDocs(source, destination, published)
@@ -56,7 +62,7 @@ describe('documentation staging', () => {
     for (const excluded of [
       'guide/index.i18n.yaml', 'upgrade-guide/v0.1.0/change/guide.i18n.yaml',
       'postmortem', 'AGENTS.md', 'persistence-changes', 'i18n',
-      'guide/.gitkeep', 'guide/.DS_Store', 'analysis', 'specs', 'handoff', 'strata',
+      'guide/.gitkeep', 'guide/.DS_Store', 'adr', 'analysis', 'specs', 'handoff', 'research', 'strata',
     ]) {
       expect(existsSync(join(destination, excluded)), excluded).toBe(false)
     }

@@ -527,5 +527,6 @@ export const ruPluginMetadataCatalog: Readonly<Record<string, string>> = {
   'Signed GitHub HTTP webhook adapter for the DeepSeek Harness webhook runtime': 'Принимает и проверяет подписанные HTTP-вебхуки GitHub для запуска правил автоматизации.',
   '@deepseek-ai/dsh-working-directory': 'Рабочая директория сессии',
   'Session working directories with durable changes and model context': 'Хранит рабочую директорию сессии, отслеживает её изменения и передаёт актуальный путь в контекст модели.',
+  '@strata/product-bundle/workspace-scaffold': 'Автоподготовка каркаса рабочей области',
   'cordis:group': 'Группа плагинов Cordis',
 }

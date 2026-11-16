@@ -422,14 +422,20 @@ describe('Settings, navigation, plugin management, and Strata presets in @strata
 
       expect(isBuiltInPreset({ id: 'strata' })).toBe(true)
       expect(existsSync(resolve(import.meta.dirname, '..', '..', 'product-bundle', 'presets', 'strata.patch.yml'))).toBe(false)
+      expect(existsSync(resolve(import.meta.dirname, '..', '..', 'product-bundle', 'presets', 'ptc.patch.yml'))).toBe(false)
+      expect(existsSync(resolve(import.meta.dirname, '..', '..', 'product-bundle', 'presets', 'cordis.patch.yml'))).toBe(false)
+
+      for (const legacyId of ['ptc', 'cordis'] as const) {
+        expect(isBuiltInPreset({ id: legacyId })).toBe(true)
+        boot.locale.setLocale('ru')
+        expect(presetDisplayText({ id: legacyId }, key => tPreset(key)).description).toMatch(/[А-Яа-яЁё]/)
+      }
 
       const roles = [
+        { id: 'standard', name: undefined, file: 'standard.patch.yml', promptHeader: 'You are a coding agent powered by the {{model}} model.' },
         { id: 'strata-developer', name: 'Strata Developer', file: 'strata-developer.patch.yml', promptHeader: 'You are **Strata Developer**' },
         { id: 'strata-analyst', name: 'Strata Analyst', file: 'strata-analyst.patch.yml', promptHeader: 'You are **Strata Analyst**' },
         { id: 'strata-designer', name: 'Strata Designer', file: 'strata-designer.patch.yml', promptHeader: 'You are **Strata Designer**' },
-        { id: 'standard', name: undefined, file: 'standard.patch.yml', promptHeader: 'You are a coding agent powered by the {{model}} model.' },
-        { id: 'ptc', name: undefined, file: 'ptc.patch.yml', promptHeader: 'You are a coding agent powered by the {{model}} model.' },
-        { id: 'cordis', name: undefined, file: 'cordis.patch.yml', promptHeader: 'You are a coding agent powered by the {{model}} model.' },
       ] as const
 
       for (const role of roles) {

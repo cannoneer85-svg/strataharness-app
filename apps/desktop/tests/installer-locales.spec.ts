@@ -75,3 +75,23 @@ it('uses the real electron-builder language identifiers and English fallback', (
       .toEqual(locales.map(locale => locale.nsisLanguage))
   } }, new LangConfigurator({ installerLanguages: locales.map(locale => locale.id) }))
 })
+
+it('sizes and centers the choose-location and main install buttons to fit localized captions like Russian', () => {
+  const pagesSource = readFileSync(new URL('../installer/pages.nsh', import.meta.url), 'utf8')
+  const themeSource = readFileSync(new URL('../installer/theme.nsh', import.meta.url), 'utf8')
+
+  const windowSize = Number(/!define\s+INSTALLER_WINDOW_SIZE\s+(\d+)/u.exec(themeSource)?.[1])
+  const buttonX = Number(/!define\s+INSTALLER_BUTTON_X\s+(\d+)/u.exec(themeSource)?.[1])
+  const buttonWidth = Number(/!define\s+INSTALLER_BUTTON_WIDTH\s+(\d+)/u.exec(themeSource)?.[1])
+  const chooseMatch = /!insertmacro\s+InstallerPlace\s+\$InstallerChoose\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/u.exec(pagesSource)
+
+  expect(windowSize).toBe(600)
+  expect(chooseMatch).not.toBeNull()
+  const chooseX = Number(chooseMatch![1])
+  const chooseWidth = Number(chooseMatch![3])
+  expect(chooseWidth).toBeGreaterThanOrEqual(240)
+  expect(2 * chooseX + chooseWidth).toBe(600)
+
+  expect(buttonWidth).toBeGreaterThanOrEqual(200)
+  expect(2 * buttonX + buttonWidth).toBe(600)
+})

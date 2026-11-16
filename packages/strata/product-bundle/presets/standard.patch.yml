@@ -1,11 +1,11 @@
-# StrataHarness overlay for upstream `standard` (`id: standard`, `order: 2`).
+# StrataHarness overlay for upstream `standard` (`id: standard`, `order: 1`).
 # Preserves upstream general-purpose coding mode with workspace `AGENTS.md` guardrails
 # and the unified StrataHarness 32768-char tool-result pruning threshold.
 - id: preset-standard
   name: '@deepseek-ai/dsh-agent-preset'
   config:
     id: standard
-    order: 2
+    order: 1
     plugins:
       - id: persona
         name: '@deepseek-ai/dsh-persona'
@@ -18,6 +18,10 @@
         name: '@deepseek-ai/dsh-agent-instructions'
         config:
           maxBytes: 65536
+          instructionFileCandidates:
+            - AGENTS.md
+            - CLAUDE.md
+            - CODING_STANDARDS.md
       - id: time-context
         name: '@deepseek-ai/dsh-time-context'
       - id: tool-bash

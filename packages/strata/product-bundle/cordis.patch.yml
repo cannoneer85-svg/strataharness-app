@@ -60,16 +60,28 @@
       - en
       - zh
 
-# ── Select Strata Developer as default preset and hide minimal preset ─────────
+# ── Select Standard as default preset and hide minimal / upstream coding aliases ─
 
 - id: agent-preset-registry
   config:
-    default: strata-developer
+    default: standard
     aliases:
       strata: strata-developer
 
 - id: preset-minimal
   disabled: true
+
+- id: preset-ptc
+  disabled: true
+
+- id: preset-cordis
+  disabled: true
+
+# ── Office kit subprocess timeout for large Word/PDF conversions ─────────────
+
+- id: office-kit
+  config:
+    timeoutMs: 120000
 
 # ── Host service resolving bundled StrataHarness skill paths & {{strata_root}} ─
 

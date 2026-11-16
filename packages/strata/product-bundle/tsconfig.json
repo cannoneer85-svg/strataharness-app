@@ -18,7 +18,13 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../core/agent"
+    },
+    {
       "path": "../../core/system-prompt"
+    },
+    {
+      "path": "../../session/working-directory"
     }
   ]
 }

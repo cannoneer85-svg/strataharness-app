@@ -530,4 +530,39 @@ describe('preset aliases', () => {
     await expect(declare(ctx, contribution('strata'))).rejects.toThrow(/alias/i)
     expect((await ctx.agentPresets.list()).map(row => row.id)).toEqual(['standard'])
   })
+
+  it('retains default strata alias across config replacement without aliases', async () => {
+    const ctx = await harness({ live: true, default: 'standard' })
+    contexts.push(ctx)
+    const live = liveRegistries.get(ctx)!
+    expect(ctx.agentPresets.defaultId).toBe('standard')
+
+    await live.replace({ default: 'strata', selectedDefault: 'strata' })
+    expect(ctx.agentPresets.defaultId).toBe('strata-developer')
+
+    await declare(ctx, contribution('standard'))
+    await declare(ctx, contribution('strata-developer'))
+    expect(ctx.agentPresets.defaultId).toBe('strata-developer')
+    expect(await ctx.agentPresets.resolve()).toEqual({ id: 'strata-developer' })
+    expect(await ctx.agentPresets.resolve('strata')).toEqual({ id: 'strata-developer' })
+    expect(await ctx.agentPresets.mount(createScope(ctx, {}).ctx, 'strata')).toEqual({ id: 'strata-developer' })
+  })
+
+  it('falls back to registered default or first registered preset when selectedDefault is disabled or unknown', async () => {
+    const ctx = await harness({ live: true, default: 'standard' })
+    contexts.push(ctx)
+    const live = liveRegistries.get(ctx)!
+
+    await live.update({ selectedDefault: 'ptc' })
+    expect(ctx.agentPresets.defaultId).toBe('ptc')
+
+    await declare(ctx, contribution('standard'))
+    await declare(ctx, contribution('strata-developer'))
+    expect(ctx.agentPresets.defaultId).toBe('standard')
+    expect(await ctx.agentPresets.resolve()).toEqual({ id: 'standard' })
+
+    await live.replace({ default: 'cordis', selectedDefault: 'ptc' })
+    expect(ctx.agentPresets.defaultId).toBe('standard')
+    expect(await ctx.agentPresets.resolve()).toEqual({ id: 'standard' })
+  })
 })

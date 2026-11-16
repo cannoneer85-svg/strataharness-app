@@ -1,7 +1,8 @@
 /** Behavioral checks for packaged Office skill probe results. */
 
+import { load } from 'js-yaml'
 import { describe, expect, it } from 'vitest'
-import { assertOfficeSkillsLoadable } from '../scripts/smoke-runtime.ts'
+import { assertOfficeSkillsLoadable, SMOKE_PROFILE_PATCH_YAML } from '../scripts/smoke-runtime.ts'
 
 const loadedSkills = [
   { name: 'office', bytes: 772 },
@@ -31,5 +32,15 @@ describe('assertOfficeSkillsLoadable', () => {
 
   it('ignores empty results for skills outside the bundled Office set', () => {
     expect(() => { assertOfficeSkillsLoadable([...loadedSkills, { name: 'other', bytes: 0 }]) }).not.toThrow()
+  })
+})
+
+describe('SMOKE_PROFILE_PATCH_YAML', () => {
+  it('configures webserver on ephemeral loopback and office-kit timeoutMs >= 120000', () => {
+    const entries = load(SMOKE_PROFILE_PATCH_YAML) as Array<{ id?: string; config?: Record<string, unknown> }>
+    expect(entries).toEqual([
+      { id: 'webserver', config: { host: '127.0.0.1', port: 0 } },
+      { id: 'office-kit', config: { timeoutMs: 120_000 } },
+    ])
   })
 })

@@ -14,6 +14,8 @@ import {
   writeSync,
 } from 'node:fs'
 import { join } from 'node:path'
+import { dump, JSON_SCHEMA, load, Type } from 'js-yaml'
+import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import {
   DESKTOP_HOST_PACKAGE,
   desktopCorePackageOverrides,
@@ -22,7 +24,7 @@ import {
 import type { DesktopPaths } from './paths.ts'
 import type { DesktopRelease } from './release.ts'
 import { readDesktopRuntime } from './runtime-tree.ts'
-import { initProfile, removeLinkProjections, sanitizeProfile } from '@deepseek-ai/dsh-app-boot'
+import { initProfile, PROFILE_PATCH_FILENAME, removeLinkProjections, sanitizeProfile } from '@deepseek-ai/dsh-app-boot'
 import { PROFILE_TEMPLATES, type ProfileTemplate } from '@deepseek-ai/dsh-official-bundles'
 
 const PROJECT_NAME = '@deepseek-ai/dsh-desktop-runtime'
@@ -30,8 +32,32 @@ const DSH_PACKAGE = '@deepseek-ai/dsh'
 const CORE_BUILD_PACKAGE = '@deepseek-ai/dsh-subprocess-local'
 const WEB_APP_BUNDLE = '@deepseek-ai/dsh-web-app'
 const STRATA_PRODUCT_BUNDLE = '@strata/product-bundle'
+const AGENT_PRESET_REGISTRY_ID = 'agent-preset-registry'
+const LEGACY_DEFAULT_PRESET_ID = 'strata'
 const WEB_PROFILE = PROFILE_TEMPLATES.web as ProfileTemplate
 const WORKSPACE_SETTINGS = 'nodeLinker: hoisted\nautoInstallPeers: false\n'
+
+interface JsExpr {
+  readonly __jsExpr: string
+}
+
+function isJsExpr(value: unknown): value is JsExpr {
+  return typeof value === 'object' && value !== null && '__jsExpr' in value && typeof Reflect.get(value, '__jsExpr') === 'string'
+}
+
+const JS_EXPR_TYPE = new Type('tag:yaml.org,2002:js', {
+  kind: 'scalar',
+  resolve: (data: unknown): boolean => typeof data === 'string',
+  construct: (data: string): JsExpr => ({ __jsExpr: data }),
+  predicate: isJsExpr,
+  represent: (data: unknown): string => (isJsExpr(data) ? data.__jsExpr : ''),
+})
+
+const PATCH_YAML_SCHEMA = JSON_SCHEMA.extend(JS_EXPR_TYPE)
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
 function writeJson(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, undefined, 2)}\n`, { mode: 0o600 })
 }
@@ -49,13 +75,68 @@ function workspaceFile(overrides: Readonly<Record<string, string>> = {}): string
   return `packages:\n  - .\n\n${overrideSection}${WORKSPACE_SETTINGS}allowBuilds:\n  node-pty: true\n  koffi: true\n  fs-ext: true\n  ${JSON.stringify(coreBuildKey)}: true\n  '@google/genai': false\n  protobufjs: false\n  node-addon-require-builtin: false\n`
 }
 
-function migrateProfileSettings(projectDir: string): void {
-  const path = join(projectDir, 'pnpm-workspace.yaml')
+async function migrateLegacyPresetPatch(projectDir: string): Promise<void> {
+  const path = join(projectDir, PROFILE_PATCH_FILENAME)
   if (!existsSync(path)) return
-  const legacy = `packages:\n  - .\n\n${WORKSPACE_SETTINGS}strictDepBuilds: true\nallowBuilds:\n  node-pty: true\n  koffi: true\n  fs-ext: true\n  "${CORE_BUILD_PACKAGE}": true\n  '@google/genai': false\n  protobufjs: false\n  node-addon-require-builtin: false\n`
-  if (readFileSync(path, 'utf8').replaceAll('\r\n', '\n') === legacy) {
-    writeFileSync(path, workspaceFile())
+  let parsed: unknown
+  try {
+    parsed = load(readFileSync(path, 'utf8'), { schema: PATCH_YAML_SCHEMA })
+  } catch (_yamlOrReadError) {
+    // Unreadable or malformed YAML stays untouched so load and recovery diagnostics report the original file.
+    return
   }
+  if (!Array.isArray(parsed)) return
+
+  let changed = false
+  const nextEntries: unknown[] = []
+  for (const entry of parsed) {
+    if (!isRecord(entry) || entry.id !== AGENT_PRESET_REGISTRY_ID || !isRecord(entry.config)) {
+      nextEntries.push(entry)
+      continue
+    }
+    let entryChanged = false
+    if (entry.config.default === LEGACY_DEFAULT_PRESET_ID) {
+      delete entry.config.default
+      entryChanged = true
+    }
+    if (entry.config.selectedDefault === LEGACY_DEFAULT_PRESET_ID) {
+      delete entry.config.selectedDefault
+      entryChanged = true
+    }
+    if (!entryChanged) {
+      nextEntries.push(entry)
+      continue
+    }
+    changed = true
+    if (Object.keys(entry.config).length === 0) {
+      delete entry.config
+    }
+    if (Object.keys(entry).some(key => key !== 'id' && key !== 'name')) {
+      nextEntries.push(entry)
+    }
+  }
+
+  if (!changed) return
+  const content = nextEntries.length === 0
+    ? '[]\n'
+    : dump(nextEntries, { schema: PATCH_YAML_SCHEMA, lineWidth: -1, noRefs: true })
+  try {
+    await writeFileAtomic(path, content, { mode: 0o600 })
+  } catch (error: unknown) {
+    // AgentPresetRegistry already aliases `strata` at runtime, so a read-only profile patch must not block startup.
+    console.warn('desktop project: failed to migrate legacy preset patch:', error)
+  }
+}
+
+async function migrateProfileSettings(projectDir: string): Promise<void> {
+  const path = join(projectDir, 'pnpm-workspace.yaml')
+  if (existsSync(path)) {
+    const legacy = `packages:\n  - .\n\n${WORKSPACE_SETTINGS}strictDepBuilds: true\nallowBuilds:\n  node-pty: true\n  koffi: true\n  fs-ext: true\n  "${CORE_BUILD_PACKAGE}": true\n  '@google/genai': false\n  protobufjs: false\n  node-addon-require-builtin: false\n`
+    if (readFileSync(path, 'utf8').replaceAll('\r\n', '\n') === legacy) {
+      writeFileSync(path, workspaceFile())
+    }
+  }
+  await migrateLegacyPresetPatch(projectDir)
 }
 
 /** Initializes the Desktop profile and disables third-party bundles during recovery. */
@@ -82,10 +163,10 @@ export class DesktopProjectManager {
    * Load application metadata and prepare the external plugin profile without installing packages.
    */
   async applyRelease(): Promise<void> {
-    await this.withLock(() => {
+    await this.withLock(async () => {
       // Validation only: an unreadable or mismatched runtime descriptor stops preparation before the Host starts.
       readDesktopRuntime(this.runtime.dsh)
-      migrateProfileSettings(this.paths.profile)
+      await migrateProfileSettings(this.paths.profile)
       createPluginProfile(this.paths.profile)
       removeLinkProjections(this.paths.profile)
     })

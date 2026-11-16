@@ -15,7 +15,7 @@ const DOCS_DIRECTORY = join(REPOSITORY_ROOT, 'docs')
 const STAGED_DIRECTORY = join(REPOSITORY_ROOT, 'apps', 'cli', 'docs')
 
 /** Maintainer directories excluded from installed packages (migration records, i18n, and Strata operational trees). */
-const EXCLUDED_DIRECTORIES = ['persistence-changes', 'i18n', 'analysis', 'specs', 'handoff', 'strata'] as const
+const EXCLUDED_DIRECTORIES = ['persistence-changes', 'i18n', 'adr', 'analysis', 'specs', 'handoff', 'research', 'strata'] as const
 
 /** Placeholder and Finder metadata files that archive builders omit. */
 const EXCLUDED_BASENAMES = new Set(['.DS_Store', '.gitkeep'])

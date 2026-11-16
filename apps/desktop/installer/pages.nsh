@@ -94,7 +94,7 @@ Function InstallerCreate
 
     ${NSD_CreateButton} 0 0 0 0 "$(INSTALLER_CHOOSE_PATH)"
     Pop $InstallerChoose
-    !insertmacro InstallerPlace $InstallerChoose 232 438 136 28
+    !insertmacro InstallerPlace $InstallerChoose 180 438 240 28
     ${NSD_OnClick} $InstallerChoose InstallerExpandPath
     ${NSD_OnNotify} $InstallerChoose InstallerPaintButton
     ${NSD_CreateBitmap} 0 0 0 0 ""

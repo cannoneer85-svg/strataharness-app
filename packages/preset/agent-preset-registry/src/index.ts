@@ -70,7 +70,7 @@ export class AgentPresetRegistry extends TypertRemoteService {
   static Config = z.object({
     default: z.string().required(),
     selectedDefault: z.string().volatile(),
-    aliases: z.dict(z.string()).default({}),
+    aliases: z.dict(z.string()).default({ strata: 'strata-developer' }),
   })
   private agentPresetProjectionHandle!: ProjectionHandle<string | null>
   private readonly owner: Context
@@ -96,7 +96,21 @@ export class AgentPresetRegistry extends TypertRemoteService {
   }
 
   /** Default preset for a subsequently created session. */
-  get defaultId(): string { return this.normalizeId(this.config.selectedDefault.get() ?? this.config.default) }
+  get defaultId(): string {
+    const selected = this.config.selectedDefault.get()
+    if (selected !== undefined) {
+      const normalizedSelected = this.normalizeId(selected)
+      if (this.definitions.size === 0 || this.definitions.has(normalizedSelected)) {
+        return normalizedSelected
+      }
+    }
+    const normalizedDefault = this.normalizeId(this.config.default)
+    if (this.definitions.size === 0 || this.definitions.has(normalizedDefault)) {
+      return normalizedDefault
+    }
+    /* v8 ignore next -- definitions.size > 0 guarantees a registered preset key */
+    return this.definitions.keys().next().value ?? normalizedDefault
+  }
 
   private normalizeId(id: string): string {
     return this.aliases.get(id) ?? id

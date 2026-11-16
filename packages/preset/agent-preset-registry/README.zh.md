@@ -42,9 +42,9 @@ kind: "package-reference"
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `default` | 必填 | 未显式指定时使用的 preset ID |
-| `aliases` | `{}` | 映射到规范 preset ID 的旧 preset ID 映射表 |
+| `aliases` | `{ strata: 'strata-developer' }` | 映射到规范 preset ID 的旧 preset ID 映射表 |
 
-Web 内置定义来自 `dsh-web-app` bundle。定义使用普通插件行；注册表不扫描目录，也不接受 preset 路径。`agent-preset-registry` 条目的 volatile 字段 `selectedDefault` 保留用户默认值，新会话优先使用它而不是部署 `default`。`aliases` 映射在 `defaultId`（含 `selectedDefault`）、`resolve`、`read`、`select` 以及 `mount` / `acquireScope` 中将旧 preset ID 规范化为规范 ID，同时不在 `list()` 中暴露别名，并拒绝空值、自指别名、链式别名或与别名键冲突的规范定义。profile patch 仍可能带有已废弃的 `modeSelectionEnabled` 字段；注册表未声明该字段，既不读取也不重写它。
+Web 内置定义来自 `dsh-web-app` bundle。定义使用普通插件行；注册表不扫描目录，也不接受 preset 路径。`agent-preset-registry` 条目的 volatile 字段 `selectedDefault` 保留用户默认值，新会话优先使用它而不是部署 `default`。若注册表已有已注册定义而 `selectedDefault` 指向已禁用或未注册的预设，`defaultId` 会回退到规范化后的 `config.default`（若已注册）或第一个已注册预设。`aliases` 映射默认值为 `{ strata: 'strata-developer' }`（即使用户补丁省略 `aliases` 仍可解析旧 `strata` 会话），在 `defaultId`（含 `selectedDefault`）、`resolve`、`read`、`select` 以及 `mount` / `acquireScope` 中将旧 preset ID 规范化为规范 ID，同时不在 `list()` 中暴露别名，并拒绝空值、自指别名、链式别名或与别名键冲突的规范定义。profile patch 仍可能带有已废弃的 `modeSelectionEnabled` 字段；注册表未声明该字段，既不读取也不重写它。
 
 注册表不写入任何声明。`read` Remote 把一条声明的子插件列表按 entry-list YAML 方言（含 `!!js` 条件）渲染回来，供客户端展示 preset 的组成；没有任何接口接受 YAML 写回。新建 preset 或覆盖内置 preset 都是 bundle 补丁：插入一行 `@deepseek-ai/dsh-agent-preset`，或按该行 id 写覆盖补丁，再用 `plugin_manager` 安装到 profile；创造模式在对话中编写这类 bundle。
 

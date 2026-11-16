@@ -41,6 +41,7 @@
 | [diagnosing-bugs](skills/diagnosing-bugs/SKILL.md) | Цикл диагностики сложных багов и регрессий с воспроизводимым red-тестом | авто | matt+правки | active |
 | [retro](skills/retro/SKILL.md) | Ретроспектива сессии для улучшения окружения агента: гейты, линтеры, тесты, стандарты | ручной | matt+правки | active |
 | [minimal-diff](skills/minimal-diff/SKILL.md) | Дисциплина объёма решения: лестница 7 ступеней до кода, запретные зоны и правила зависимостей | авто | свой | active |
+| [migrate-to-shoehorn](skills/migrate-to-shoehorn/SKILL.md) | Перевести тесты с утверждений типа `as` на `@total-typescript/shoehorn` | авто | matt | active |
 
 ## Домен и дизайн
 
@@ -101,6 +102,7 @@
 |---|---|---|---|---|
 | [resolving-merge-conflicts](skills/resolving-merge-conflicts/SKILL.md) | Разрешить незавершённый merge или rebase с конфликтами | авто | matt | active |
 | [git-guardrails-claude-code](skills/git-guardrails-claude-code/SKILL.md) | Хуки Claude Code, блокирующие опасные git-команды | авто | matt | active |
+| [setup-pre-commit](skills/setup-pre-commit/SKILL.md) | Настроить pre-commit хуки Husky: lint-staged, проверка типов, тесты | авто | matt | active |
 | [wizard](skills/wizard/SKILL.md) | Интерактивный bash-мастер для шагов, которые может сделать только человек | авто | matt+правки | active |
 | [pr](skills/pr/SKILL.md) | Справочник оформления описания PR по Show-Me, Before/After Evidence и Merge Danger | авто | matt+правки | active |
 | [strata-release](skills/strata-release/SKILL.md) | Интерактивный мастер подготовки и выпуска десктоп-релиза `StrataHarness`: предпросмотр `strata:changelog`, русское резюме `docs/strata/releases/v*.md`, опциональный bump версии, тег `strata-v*` и подтверждённый `git push` | ручной | свой | active |

@@ -4,8 +4,25 @@ import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resolveDesktopPaths } from '../src/paths.ts'
 import { DesktopProjectManager } from '../src/project-manager.ts'
-import { readProfilePlugins } from '@deepseek-ai/dsh-app-boot'
+import { loadOptionalPatches, readProfilePlugins } from '@deepseek-ai/dsh-app-boot'
 import { runtimeFixture } from './runtime-fixture.ts'
+
+const { mockWriteFileAtomicOnce } = vi.hoisted(() => ({
+  mockWriteFileAtomicOnce: { handler: undefined as undefined | (() => Promise<void>) },
+}))
+
+vi.mock('@deepseek-ai/dsh-atomic-write', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@deepseek-ai/dsh-atomic-write')>()
+  return {
+    ...actual,
+    async writeFileAtomic(filename: string, content: string | Uint8Array, options: { mode: number; dirMode?: number }) {
+      const next = mockWriteFileAtomicOnce.handler
+      mockWriteFileAtomicOnce.handler = undefined
+      if (next !== undefined) return next()
+      return actual.writeFileAtomic(filename, content, options)
+    },
+  }
+})
 
 const roots: string[] = []
 function temporaryRoot(): string {
@@ -358,5 +375,137 @@ describe('desktop link-backend projections', () => {
       '@strata/product-bundle',
       'custom-plugin',
     ])
+  })
+})
+
+describe('desktop legacy strata preset migration', () => {
+  it('removes legacy strata overrides from agent-preset-registry while keeping other user settings and !!js expressions intact', async () => {
+    const { manager } = setup()
+    mkdirSync(manager.paths.profile, { recursive: true })
+    const patchPath = join(manager.paths.profile, 'cordis.patch.yml')
+    writeFileSync(patchPath, [
+      '- id: ui-theme',
+      '  config:',
+      '    preference: dark',
+      '- id: agent-preset-registry',
+      "  name: '@deepseek-ai/dsh-agent-preset-registry'",
+      '  config:',
+      '    default: strata',
+      '    selectedDefault: strata',
+      '- id: locale',
+      '  config:',
+      '    locale: ru',
+      '- id: agent-default-model',
+      '  config:',
+      '    defaultModel: deepseek-reasoner',
+      '- id: custom-expr',
+      '  config:',
+      '    token: !!js process.env.DSH_CUSTOM_TOKEN',
+      '',
+    ].join('\n'))
+
+    await manager.applyRelease()
+
+    const patches = loadOptionalPatches('dsh', patchPath)
+    expect(patches).toEqual([
+      { id: 'ui-theme', config: { preference: 'dark' } },
+      { id: 'locale', config: { locale: 'ru' } },
+      { id: 'agent-default-model', config: { defaultModel: 'deepseek-reasoner' } },
+      { id: 'custom-expr', config: { token: { __jsExpr: 'process.env.DSH_CUSTOM_TOKEN' } } },
+    ])
+  })
+
+  it('collapses cordis.patch.yml to an empty array when legacy agent-preset-registry was the only entry', async () => {
+    const { manager } = setup()
+    mkdirSync(manager.paths.profile, { recursive: true })
+    const patchPath = join(manager.paths.profile, 'cordis.patch.yml')
+    writeFileSync(patchPath, [
+      '- id: agent-preset-registry',
+      '  config:',
+      '    default: strata',
+      '    selectedDefault: strata',
+      '',
+    ].join('\n'))
+
+    await manager.applyRelease()
+
+    expect(readFileSync(patchPath, 'utf8')).toBe('[]\n')
+    expect(loadOptionalPatches('dsh', patchPath)).toEqual([])
+  })
+
+  it('removes legacy default: strata while preserving a non-legacy selectedDefault', async () => {
+    const { manager } = setup()
+    mkdirSync(manager.paths.profile, { recursive: true })
+    const patchPath = join(manager.paths.profile, 'cordis.patch.yml')
+    writeFileSync(patchPath, [
+      '- id: agent-preset-registry',
+      '  config:',
+      '    default: strata',
+      '    selectedDefault: strata-analyst',
+      '',
+    ].join('\n'))
+
+    await manager.applyRelease()
+
+    expect(loadOptionalPatches('dsh', patchPath)).toEqual([
+      { id: 'agent-preset-registry', config: { selectedDefault: 'strata-analyst' } },
+    ])
+  })
+
+  it('leaves non-legacy selectedDefault files untouched without rewriting formatting or comments', async () => {
+    const { manager } = setup()
+    mkdirSync(manager.paths.profile, { recursive: true })
+    const patchPath = join(manager.paths.profile, 'cordis.patch.yml')
+    const original = [
+      '# user comment',
+      '- id: agent-preset-registry',
+      '  config:',
+      '    selectedDefault: standard',
+      '',
+    ].join('\n')
+    writeFileSync(patchPath, original)
+
+    await manager.applyRelease()
+
+    expect(readFileSync(patchPath, 'utf8')).toBe(original)
+  })
+
+  it('ignores malformed cordis.patch.yml during applyRelease without crashing startup', async () => {
+    const { manager } = setup()
+    mkdirSync(manager.paths.profile, { recursive: true })
+    const patchPath = join(manager.paths.profile, 'cordis.patch.yml')
+    const malformed = ': broken\n'
+    writeFileSync(patchPath, malformed)
+
+    await expect(manager.applyRelease()).resolves.toBeUndefined()
+    expect(readFileSync(patchPath, 'utf8')).toBe(malformed)
+  })
+
+  it('logs a warning and completes applyRelease when atomic migration write fails', async () => {
+    const { manager } = setup()
+    mkdirSync(manager.paths.profile, { recursive: true })
+    const patchPath = join(manager.paths.profile, 'cordis.patch.yml')
+    const legacy = [
+      '- id: agent-preset-registry',
+      '  config:',
+      '    default: strata',
+      '    selectedDefault: strata',
+      '',
+    ].join('\n')
+    writeFileSync(patchPath, legacy)
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockWriteFileAtomicOnce.handler = async () => {
+      throw Object.assign(new Error('read-only fs'), { code: 'EROFS' })
+    }
+
+    try {
+      await expect(manager.applyRelease()).resolves.toBeUndefined()
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(readFileSync(patchPath, 'utf8')).toBe(legacy)
+    } finally {
+      mockWriteFileAtomicOnce.handler = undefined
+      warnSpy.mockRestore()
+    }
   })
 })

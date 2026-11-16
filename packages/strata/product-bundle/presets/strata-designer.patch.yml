@@ -35,10 +35,16 @@
                 5. **Language Policy:**
                    - Every reply to the user, UX specs, and design rationale: **Russian** (UI copy inside prototypes follows the target product language requested by the user, defaulting to Russian for internal flows).
                    - Agent-facing files (`AGENTS.md`, `SKILL.md`) and public repository files: **English**.
+          - id: strata-workspace-scaffold
+            name: '@strata/product-bundle/workspace-scaffold'
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
               maxBytes: 65536
+              instructionFileCandidates:
+                - AGENTS.md
+                - CLAUDE.md
+                - CODING_STANDARDS.md
           - id: time-context
             name: '@deepseek-ai/dsh-time-context'
           - id: tool-bash

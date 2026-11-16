@@ -1,17 +1,38 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import * as fsPromises from 'node:fs/promises'
+import * as os from 'node:os'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, parse, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
+import { agentEvents } from '@deepseek-ai/dsh-agent'
+import * as AgentInstructions from '@deepseek-ai/dsh-agent-instructions'
+import {
+  mountAgentLoopTestDependencies,
+  mountAgentLoopTestHarness,
+} from '@deepseek-ai/dsh-agent-loop-testkit'
 import AgentPresetRegistry from '@deepseek-ai/dsh-agent-preset-registry'
 import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { bundlePatchPaths, composeEntries } from '@deepseek-ai/dsh-app-boot/src/profile.ts'
+import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { Config as SkillOfficeConfig } from '@deepseek-ai/dsh-skill-office'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { Config as ToolOfficeConfig } from '@deepseek-ai/dsh-tool-office'
 import { Config as ToolSubagentConfig } from '@deepseek-ai/dsh-tool-subagent'
 import { Config as ToolSubagentControlConfig } from '@deepseek-ai/dsh-tool-subagent-control'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import StrataPaths, { resolveDesignerSkillsDir, resolveStrataHarnessRoot } from '../src/index.ts'
+import * as WorkspaceScaffold from '../src/workspace-scaffold.ts'
+import { isProtectedScaffoldDirectory, scaffoldStrataWorkspace } from '../src/workspace-scaffold.ts'
+
+vi.mock('node:fs/promises', { spy: true })
+vi.mock('node:os', { spy: true })
+
+function createTrackedTempDir(tempDirs: string[], prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix))
+  tempDirs.push(dir)
+  return dir
+}
 
 describe('StrataPaths (@strata/product-bundle)', () => {
   const tempDirs: string[] = []
@@ -20,9 +41,7 @@ describe('StrataPaths (@strata/product-bundle)', () => {
   const originalResourcesDescriptor = Object.getOwnPropertyDescriptor(process, 'resourcesPath')
 
   function makeTempDir(prefix: string): string {
-    const dir = mkdtempSync(join(tmpdir(), prefix))
-    tempDirs.push(dir)
-    return dir
+    return createTrackedTempDir(tempDirs, prefix)
   }
 
   function setProcessResourcesPath(value: string): void {
@@ -239,27 +258,39 @@ function loadComposedProductEntries() {
 }
 
 describe('Strata preset lineup & overrides (@strata/product-bundle)', () => {
-  it('removes legacy strata.patch.yml, sets strata-developer default + strata alias, and composes 6 active presets in order 1..6', async () => {
+  it('removes legacy/disabled overlays, sets standard default + strata alias, configures office-kit, and composes 4 active presets', async () => {
     const { repoRoot, warnings, entries } = loadComposedProductEntries()
     expect(warnings).toEqual([])
 
     const bundleRoot = join(repoRoot, 'packages', 'strata', 'product-bundle')
     expect(existsSync(join(bundleRoot, 'presets', 'strata.patch.yml'))).toBe(false)
+    expect(existsSync(join(bundleRoot, 'presets', 'ptc.patch.yml'))).toBe(false)
+    expect(existsSync(join(bundleRoot, 'presets', 'cordis.patch.yml'))).toBe(false)
     const bundleManifest = JSON.parse(readFileSync(join(bundleRoot, 'package.json'), 'utf8')) as {
       files: string[]
       dsh: { bundle: { patch: string[] } }
     }
     expect(bundleManifest.files).not.toContain('presets/strata.patch.yml')
+    expect(bundleManifest.files).not.toContain('presets/ptc.patch.yml')
+    expect(bundleManifest.files).not.toContain('presets/cordis.patch.yml')
     expect(bundleManifest.dsh.bundle.patch).not.toContain('./presets/strata.patch.yml')
+    expect(bundleManifest.dsh.bundle.patch).not.toContain('./presets/ptc.patch.yml')
+    expect(bundleManifest.dsh.bundle.patch).not.toContain('./presets/cordis.patch.yml')
 
     const registryEntry = entries.find(entry => entry.id === 'agent-preset-registry')
     expect(registryEntry?.config).toEqual({
-      default: 'strata-developer',
+      default: 'standard',
       aliases: { strata: 'strata-developer' },
     })
 
-    const minimalEntry = entries.find(entry => entry.id === 'preset-minimal')
-    expect(minimalEntry?.disabled).toBe(true)
+    for (const disabledId of ['preset-minimal', 'preset-ptc', 'preset-cordis']) {
+      expect(entries.find(entry => entry.id === disabledId)?.disabled, `${disabledId} should be disabled`).toBe(true)
+    }
+
+    const officeKitEntry = entries.find(entry => entry.id === 'office-kit')
+    expect(officeKitEntry?.config).toEqual({
+      timeoutMs: 120000,
+    })
 
     const activePresetEntries = entries.filter(
       entry => entry.name === '@deepseek-ai/dsh-agent-preset' && entry.disabled !== true,
@@ -292,15 +323,13 @@ describe('Strata preset lineup & overrides (@strata/product-bundle)', () => {
 
       const listed = await ctx.agentPresets.list()
       expect(listed.map(item => item.id)).toEqual([
-        'strata-developer',
         'standard',
+        'strata-developer',
         'strata-analyst',
         'strata-designer',
-        'ptc',
-        'cordis',
       ])
-      expect(listed.map(item => item.order)).toEqual([1, 2, 3, 4, 5, 6])
-      expect(ctx.agentPresets.defaultId).toBe('strata-developer')
+      expect(listed.map(item => item.order)).toEqual([1, 2, 3, 4])
+      expect(ctx.agentPresets.defaultId).toBe('standard')
 
       const resolvedAlias = await ctx.agentPresets.resolve('strata')
       expect(resolvedAlias.id).toBe('strata-developer')
@@ -311,7 +340,7 @@ describe('Strata preset lineup & overrides (@strata/product-bundle)', () => {
     }
   })
 
-  it('unifies tool-result-pruner at 32768 chars and aligns prompts across standard and strata-developer', () => {
+  it('unifies pruner/instructions/scaffolding across presets and keeps standard clean of Strata skills', () => {
     const { repoRoot, entries } = loadComposedProductEntries()
     const presets = new Map(
       entries
@@ -324,14 +353,12 @@ describe('Strata preset lineup & overrides (@strata/product-bundle)', () => {
 
     expect([...presets.keys()]).toEqual([
       'standard',
-      'ptc',
-      'cordis',
       'strata-developer',
       'strata-analyst',
       'strata-designer',
-    ].filter(id => presets.has(id)))
+    ])
 
-    for (const id of ['strata-developer', 'standard', 'strata-analyst', 'strata-designer', 'ptc', 'cordis']) {
+    for (const id of ['standard', 'strata-developer', 'strata-analyst', 'strata-designer']) {
       const preset = presets.get(id)
       expect(preset, `missing active preset ${id}`).toBeDefined()
       const nested = collectNestedPlugins(preset!.plugins)
@@ -341,6 +368,25 @@ describe('Strata preset lineup & overrides (@strata/product-bundle)', () => {
         headChars: 16384,
         tailChars: 4096,
       })
+
+      const instructions = nested.find(row => row.id === 'agent-instructions')
+      expect(instructions?.config, `${id} agent-instructions mismatch`).toEqual({
+        maxBytes: 65536,
+        instructionFileCandidates: ['AGENTS.md', 'CLAUDE.md', 'CODING_STANDARDS.md'],
+      })
+
+      const skillFs = nested.find(row => row.id === 'skill-filesystem')
+      if (id === 'standard') {
+        expect(skillFs?.config).not.toHaveProperty('bundledSkillDir')
+        expect(nested.some(row => row.id === 'strata-workspace-scaffold')).toBe(false)
+      } else {
+        expect(skillFs?.config).toHaveProperty('bundledSkillDir')
+        const scaffoldIndex = preset!.plugins.findIndex(row => row.id === 'strata-workspace-scaffold')
+        const instructionsIndex = preset!.plugins.findIndex(row => row.id === 'agent-instructions')
+        expect(scaffoldIndex, `${id} missing strata-workspace-scaffold`).toBeGreaterThanOrEqual(0)
+        expect(preset!.plugins[scaffoldIndex]?.name).toBe('@strata/product-bundle/workspace-scaffold')
+        expect(scaffoldIndex).toBeLessThan(instructionsIndex)
+      }
     }
 
     const standardNested = collectNestedPlugins(presets.get('standard')!.plugins)
@@ -351,10 +397,10 @@ describe('Strata preset lineup & overrides (@strata/product-bundle)', () => {
 
     const devNested = collectNestedPlugins(presets.get('strata-developer')!.plugins)
     const devPrefix = (devNested.find(row => row.id === 'persona')?.config as { prefix?: string } | undefined)?.prefix ?? ''
-    expect(devPrefix).toContain('AGENTS.md')
     expect(devPrefix).toContain('.agents/CONTEXT.md')
-    expect(devPrefix).toContain('init-project/SKILL.md')
-    expect(devPrefix).toContain('pwsh')
+    expect(devPrefix).not.toContain('Optional project scaffolding')
+    expect(devPrefix).not.toContain('init-project/SKILL.md')
+    expect(devPrefix).not.toContain('pwsh')
 
     const skillDirs = readdirSync(join(repoRoot, 'resources', 'strataharness', '.agents', 'skills'), {
       withFileTypes: true,
@@ -384,7 +430,7 @@ describe('Strata preset lineup & overrides (@strata/product-bundle)', () => {
       expect(nested.some(row => row.name === '@deepseek-ai/dsh-skill-office')).toBe(false)
       expect(nested.some(row => row.name === '@deepseek-ai/dsh-tool-subagent-control/list-agents')).toBe(false)
 
-      if (preset.id === 'strata-developer' || preset.id === 'strata-analyst' || preset.id === 'standard' || preset.id === 'ptc') {
+      if (preset.id === 'strata-developer' || preset.id === 'strata-analyst' || preset.id === 'standard') {
         expect(nested.some(row => row.name === '@deepseek-ai/dsh-tool-office')).toBe(true)
       }
 
@@ -414,5 +460,292 @@ describe('Strata preset lineup & overrides (@strata/product-bundle)', () => {
     }
     expect(analystPrefix).not.toContain('office-pdf')
     expect(analystPrefix).not.toContain('office-export-pdf')
+  })
+})
+
+describe('workspace scaffold plugin (@strata/product-bundle/workspace-scaffold)', () => {
+  const tempDirs: string[] = []
+  const contexts: Context[] = []
+  const strataRoot = resolve(import.meta.dirname, '..', '..', '..', '..', 'resources', 'strataharness')
+  const templateRoot = join(strataRoot, '.agents', 'skills', 'init-project', 'templates')
+
+  afterEach(async () => {
+    vi.restoreAllMocks()
+    while (contexts.length > 0) {
+      const ctx = contexts.pop()
+      if (ctx !== undefined) await ctx.fiber.dispose()
+    }
+    while (tempDirs.length > 0) {
+      const dir = tempDirs.pop()
+      if (dir !== undefined) rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('detects empty, root, home, and temp directories as protected with platform case and symlink semantics', () => {
+    expect(isProtectedScaffoldDirectory('')).toBe(true)
+    expect(isProtectedScaffoldDirectory('   ')).toBe(true)
+    expect(isProtectedScaffoldDirectory(parse(process.cwd()).root)).toBe(true)
+    expect(isProtectedScaffoldDirectory(os.homedir())).toBe(true)
+    expect(isProtectedScaffoldDirectory(os.tmpdir())).toBe(true)
+
+    const parent = createTrackedTempDir(tempDirs, 'strata-home-parent-')
+    const realProtectedDir = join(parent, 'real-protected-home')
+    mkdirSync(realProtectedDir, { recursive: true })
+    const linkedProtectedDir = join(parent, 'linked-protected-home')
+    symlinkSync(realProtectedDir, linkedProtectedDir, process.platform === 'win32' ? 'junction' : 'dir')
+    vi.spyOn(os, 'homedir').mockReturnValue(linkedProtectedDir)
+    expect(isProtectedScaffoldDirectory(realProtectedDir)).toBe(true)
+
+    const fakeHome = join(parent, 'MockHome')
+    const swappedCaseHome = join(parent, 'mockhome')
+    vi.spyOn(os, 'homedir').mockReturnValue(fakeHome)
+
+    const platformSpy = vi.spyOn(process, 'platform', 'get')
+    platformSpy.mockReturnValue('win32')
+    expect(isProtectedScaffoldDirectory(swappedCaseHome)).toBe(true)
+    platformSpy.mockReturnValue('darwin')
+    expect(isProtectedScaffoldDirectory(swappedCaseHome)).toBe(true)
+    platformSpy.mockReturnValue('linux')
+    expect(isProtectedScaffoldDirectory(fakeHome)).toBe(true)
+    expect(isProtectedScaffoldDirectory(swappedCaseHome)).toBe(false)
+
+    const projectDir = join(parent, 'my-project')
+    expect(isProtectedScaffoldDirectory(projectDir)).toBe(false)
+  })
+
+  it('creates missing directories and starter templates without overwriting existing files or copying skills/AGENTS.md', async () => {
+    expect(await scaffoldStrataWorkspace(os.tmpdir(), strataRoot)).toBe(false)
+
+    const abortedController = new AbortController()
+    abortedController.abort(new Error('already cancelled'))
+    await expect(
+      scaffoldStrataWorkspace(createTrackedTempDir(tempDirs, 'strata-aborted-'), strataRoot, abortedController.signal),
+    ).rejects.toThrow('already cancelled')
+
+    const workspace = createTrackedTempDir(tempDirs, 'strata-scaffold-fresh-')
+    expect(await scaffoldStrataWorkspace(workspace, strataRoot)).toBe(true)
+
+    for (const relDir of ['.agents', 'docs/adr', 'docs/agents', 'docs/analysis', 'docs/handoff', 'docs/research', 'docs/specs']) {
+      expect(existsSync(join(workspace, relDir)), `expected directory ${relDir}`).toBe(true)
+    }
+
+    const expectedTemplates: ReadonlyArray<readonly [string, string]> = [
+      ['CODING_STANDARDS.md', 'CODING_STANDARDS.md'],
+      ['CONTEXT.md', '.agents/CONTEXT.md'],
+      ['LATEST.md', 'docs/handoff/LATEST.md'],
+      ['domain.md', 'docs/agents/domain.md'],
+      ['issue-tracker-local.md', 'docs/agents/issue-tracker.md'],
+      ['triage-labels.md', 'docs/agents/triage-labels.md'],
+    ]
+
+    for (const [templateFile, targetRelPath] of expectedTemplates) {
+      expect(readFileSync(join(workspace, targetRelPath), 'utf8')).toBe(readFileSync(join(templateRoot, templateFile), 'utf8'))
+    }
+    expect(existsSync(join(workspace, '.agents', 'skills'))).toBe(false)
+    expect(existsSync(join(workspace, 'AGENTS.md'))).toBe(false)
+
+    const customWorkspace = createTrackedTempDir(tempDirs, 'strata-scaffold-existing-')
+    const customStandards = '# Project Coding Standards\nCustom rule\n'
+    const customContext = '# Existing CONTEXT\n'
+    mkdirSync(join(customWorkspace, '.agents'), { recursive: true })
+    writeFileSync(join(customWorkspace, 'CODING_STANDARDS.md'), customStandards, 'utf8')
+    writeFileSync(join(customWorkspace, '.agents', 'CONTEXT.md'), customContext, 'utf8')
+
+    expect(await scaffoldStrataWorkspace(customWorkspace, strataRoot)).toBe(true)
+    expect(readFileSync(join(customWorkspace, 'CODING_STANDARDS.md'), 'utf8')).toBe(customStandards)
+    expect(readFileSync(join(customWorkspace, '.agents', 'CONTEXT.md'), 'utf8')).toBe(customContext)
+    expect(readFileSync(join(customWorkspace, 'docs/handoff/LATEST.md'), 'utf8')).toBe(
+      readFileSync(join(templateRoot, 'LATEST.md'), 'utf8'),
+    )
+  })
+
+  it('rethrows non-EEXIST writeFile errors cleanly', async () => {
+    const workspace = createTrackedTempDir(tempDirs, 'strata-write-err-')
+    const writeSpy = vi.spyOn(fsPromises, 'writeFile')
+
+    writeSpy.mockRejectedValueOnce(Object.assign(new Error('permission denied'), { code: 'EACCES' }))
+    await expect(scaffoldStrataWorkspace(workspace, strataRoot)).rejects.toThrow('permission denied')
+
+    writeSpy.mockRejectedValueOnce(new Error('plain failure'))
+    await expect(scaffoldStrataWorkspace(workspace, strataRoot)).rejects.toThrow('plain failure')
+
+    writeSpy.mockRejectedValueOnce('non-error failure')
+    await expect(scaffoldStrataWorkspace(workspace, strataRoot)).rejects.toBe('non-error failure')
+  })
+
+  it('scaffolds before agent-instructions on step 1, caches directory checks, warns on errors, and respects AbortSignal', async () => {
+    const workspace = createTrackedTempDir(tempDirs, 'strata-prestep-e2e-')
+    const ctx = new Context()
+    contexts.push(ctx)
+    await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
+    await ctx.plugin(StrataPaths, { strataHarnessRoot: strataRoot })
+    await ctx.plugin(WorkspaceScaffold)
+    await ctx.plugin(AgentInstructions, {
+      maxBytes: 65536,
+      instructionFileCandidates: ['AGENTS.md', 'CLAUDE.md', 'CODING_STANDARDS.md'],
+    })
+
+    const harness = await mountAgentLoopTestHarness(ctx)
+    const agent = await harness.create(SessionId('strata-scaffold-step1'), {}, { cwd: workspace })
+    const userMsg = createUserMessage({
+      content: [{ type: 'text', text: 'Inspect project setup' }],
+      source: { kind: 'user' },
+    })
+
+    const mkdirSpy = vi.spyOn(fsPromises, 'mkdir')
+    const decision1 = await agentEvents(ctx, agent).waterfall(
+      'agent/pre-step',
+      {
+        modelSelection: { provider: 'mock', model: 'mock' },
+        messages: [userMsg],
+        turn: 1,
+        step: 1,
+        signal: new AbortController().signal,
+      },
+      async () => ({ kind: 'enter' as const, messages: [userMsg] }),
+    )
+
+    expect(decision1.kind).toBe('enter')
+    if (decision1.kind !== 'enter') throw new Error('expected enter decision')
+    expect(existsSync(join(workspace, 'CODING_STANDARDS.md'))).toBe(true)
+
+    const injectedText = decision1.messages
+      .map(message => (typeof message.content === 'string' ? message.content : JSON.stringify(message.content)))
+      .join('\n')
+    expect(injectedText).toContain('CODING_STANDARDS.md')
+    expect(injectedText).toContain('# Стандарты кодирования')
+    expect(mkdirSpy.mock.calls.length).toBeGreaterThan(0)
+
+    mkdirSpy.mockClear()
+    const decision2 = await agentEvents(ctx, agent).waterfall(
+      'agent/pre-step',
+      {
+        modelSelection: { provider: 'mock', model: 'mock' },
+        messages: [userMsg],
+        turn: 1,
+        step: 2,
+        signal: new AbortController().signal,
+      },
+      async () => ({ kind: 'enter' as const, messages: [userMsg] }),
+    )
+    expect(decision2.kind).toBe('enter')
+    expect(mkdirSpy).not.toHaveBeenCalled()
+
+    const errWorkspace = createTrackedTempDir(tempDirs, 'strata-prestep-err-')
+    const warnCtx = new Context()
+    contexts.push(warnCtx)
+    await mountAgentLoopTestDependencies(warnCtx, { workingDirectory: true })
+    await warnCtx.plugin(StrataPaths, { strataHarnessRoot: strataRoot })
+    const scaffoldPlugin = await warnCtx.plugin(WorkspaceScaffold)
+    const warnSpy = vi.spyOn(scaffoldPlugin.ctx.logger, 'warn').mockImplementation(() => {})
+    const warnHarness = await mountAgentLoopTestHarness(warnCtx)
+    const warnAgent = await warnHarness.create(SessionId('strata-scaffold-warn'), {}, { cwd: errWorkspace })
+
+    vi.spyOn(fsPromises, 'mkdir').mockRejectedValueOnce(Object.assign(new Error('read-only fs'), { code: 'EROFS' }))
+    const warnDecision = await agentEvents(warnCtx, warnAgent).waterfall(
+      'agent/pre-step',
+      {
+        modelSelection: { provider: 'mock', model: 'mock' },
+        messages: [userMsg],
+        turn: 1,
+        step: 1,
+        signal: new AbortController().signal,
+      },
+      async () => ({ kind: 'enter' as const, messages: [userMsg] }),
+    )
+    expect(warnDecision.kind).toBe('enter')
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+
+    const abortController = new AbortController()
+    vi.spyOn(fsPromises, 'mkdir').mockImplementationOnce(async () => {
+      abortController.abort(new Error('step aborted mid-scaffold'))
+      throw new Error('mkdir failed during abort')
+    })
+    await expect(
+      agentEvents(warnCtx, warnAgent).waterfall(
+        'agent/pre-step',
+        {
+          modelSelection: { provider: 'mock', model: 'mock' },
+          messages: [userMsg],
+          turn: 1,
+          step: 2,
+          signal: abortController.signal,
+        },
+        async () => ({ kind: 'enter' as const, messages: [userMsg] }),
+      ),
+    ).rejects.toThrow('mkdir failed during abort')
+
+    const concurrentWorkspace = createTrackedTempDir(tempDirs, 'strata-prestep-concurrent-')
+    const concurrentCtx = new Context()
+    contexts.push(concurrentCtx)
+    await mountAgentLoopTestDependencies(concurrentCtx, { workingDirectory: true })
+    await concurrentCtx.plugin(StrataPaths, { strataHarnessRoot: strataRoot })
+    await concurrentCtx.plugin(WorkspaceScaffold)
+    await concurrentCtx.plugin(AgentInstructions, {
+      maxBytes: 65536,
+      instructionFileCandidates: ['AGENTS.md', 'CLAUDE.md', 'CODING_STANDARDS.md'],
+    })
+    const concurrentHarness = await mountAgentLoopTestHarness(concurrentCtx)
+    const agentA = await concurrentHarness.create(SessionId('strata-concurrent-a'), {}, { cwd: concurrentWorkspace })
+    const agentB = await concurrentHarness.create(SessionId('strata-concurrent-b'), {}, { cwd: concurrentWorkspace })
+    let releaseGate!: () => void
+    const gate = new Promise<void>((resolveGate) => { releaseGate = resolveGate })
+    let enteredFirstMkdir!: () => void
+    const firstMkdirStarted = new Promise<void>((resolveStarted) => { enteredFirstMkdir = resolveStarted })
+    mkdirSpy.mockClear()
+    mkdirSpy.mockImplementationOnce(async (target, opts) => {
+      enteredFirstMkdir()
+      await gate
+      mkdirSync(String(target), opts as { recursive?: boolean })
+      return undefined
+    })
+    const concurrentWriteSpy = vi.spyOn(fsPromises, 'writeFile')
+    const nextCalls: string[] = []
+    const promiseA = agentEvents(concurrentCtx, agentA).waterfall(
+      'agent/pre-step',
+      {
+        modelSelection: { provider: 'mock', model: 'mock' },
+        messages: [userMsg],
+        turn: 1,
+        step: 1,
+        signal: new AbortController().signal,
+      },
+      async () => {
+        nextCalls.push('A')
+        return { kind: 'enter' as const, messages: [userMsg] }
+      },
+    )
+    const promiseB = agentEvents(concurrentCtx, agentB).waterfall(
+      'agent/pre-step',
+      {
+        modelSelection: { provider: 'mock', model: 'mock' },
+        messages: [userMsg],
+        turn: 1,
+        step: 1,
+        signal: new AbortController().signal,
+      },
+      async () => {
+        nextCalls.push('B')
+        return { kind: 'enter' as const, messages: [userMsg] }
+      },
+    )
+    await firstMkdirStarted
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(nextCalls).toEqual([])
+    releaseGate()
+    const [resA, resB] = await Promise.all([promiseA, promiseB])
+    expect([...nextCalls].sort()).toEqual(['A', 'B'])
+    expect(mkdirSpy).toHaveBeenCalledTimes(7)
+    const workspaceWrites = concurrentWriteSpy.mock.calls.filter(([dest]) =>
+      typeof dest === 'string' && dest.startsWith(concurrentWorkspace),
+    )
+    expect(workspaceWrites).toHaveLength(6)
+    for (const res of [resA, resB]) {
+      expect(res.kind).toBe('enter')
+      if (res.kind !== 'enter') throw new Error('expected enter decision')
+      const joined = res.messages.map(m => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content))).join('\n')
+      expect(joined).toContain('CODING_STANDARDS.md')
+    }
   })
 })

@@ -18,6 +18,10 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./workspace-scaffold": {
+      "types": "./lib/types/workspace-scaffold.d.ts",
+      "default": "./lib/types/workspace-scaffold.js"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./locale/*.json": "./locale/*.json",
     "./src/*": "./src/*",
@@ -26,13 +30,12 @@
   "files": [
     "locale/*.json",
     "lib/index.js",
+    "lib/types/**/*.js",
     "cordis.patch.yml",
     "presets/strata-developer.patch.yml",
     "presets/standard.patch.yml",
     "presets/strata-analyst.patch.yml",
     "presets/strata-designer.patch.yml",
-    "presets/ptc.patch.yml",
-    "presets/cordis.patch.yml",
     "skills",
     "lib/types/**/*.d.ts"
   ],
@@ -44,13 +47,12 @@
         "./presets/strata-developer.patch.yml",
         "./presets/standard.patch.yml",
         "./presets/strata-analyst.patch.yml",
-        "./presets/strata-designer.patch.yml",
-        "./presets/ptc.patch.yml",
-        "./presets/cordis.patch.yml"
+        "./presets/strata-designer.patch.yml"
       ]
     }
   },
   "dependencies": {
+    "@deepseek-ai/dsh-agent": "workspace:*",
     "@deepseek-ai/dsh-agent-instructions": "workspace:*",
     "@deepseek-ai/dsh-agent-preset": "workspace:*",
     "@deepseek-ai/dsh-command-compact": "workspace:*",
@@ -82,6 +84,7 @@
     "@deepseek-ai/dsh-tool-web": "workspace:*",
     "@deepseek-ai/dsh-tool-workflow": "workspace:*",
     "@deepseek-ai/dsh-workflow-ptc": "workspace:*",
+    "@deepseek-ai/dsh-working-directory": "workspace:*",
     "@deepseek-ai/schemastery": "workspace:~",
     "@strata/locale-ru": "workspace:~",
     "@strata/ui-brand": "workspace:~"
@@ -91,8 +94,11 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-agent-loop-testkit": "workspace:*",
     "@deepseek-ai/dsh-agent-preset-registry": "workspace:*",
     "@deepseek-ai/dsh-app-boot": "workspace:*",
+    "@deepseek-ai/dsh-llm": "workspace:*",
+    "@deepseek-ai/dsh-session": "workspace:*",
     "@deepseek-ai/dsh-skill-office": "workspace:*",
     "@deepseek-ai/dsh-system-prompt": "workspace:*"
   }

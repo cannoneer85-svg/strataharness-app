@@ -35,10 +35,16 @@
                 5. **Language Policy:**
                    - Every reply to the user and all internal analytical deliverables, specs, questionnaires, glossaries, and ADRs: **Russian** (unless the user explicitly requests another language for an external document).
                    - Agent-facing files (`AGENTS.md`, `SKILL.md`) and public repository files (`README.md`, commit messages): **English**.
+          - id: strata-workspace-scaffold
+            name: '@strata/product-bundle/workspace-scaffold'
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
               maxBytes: 65536
+              instructionFileCandidates:
+                - AGENTS.md
+                - CLAUDE.md
+                - CODING_STANDARDS.md
           - id: time-context
             name: '@deepseek-ai/dsh-time-context'
           - id: tool-bash

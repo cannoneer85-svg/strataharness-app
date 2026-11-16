@@ -1,4 +1,4 @@
-# Strata Developer preset (`id: strata-developer`, `order: 1`).
+# Strata Developer preset (`id: strata-developer`, `order: 2`).
 # Focused on the 6-stage StrataHarness Development lifecycle, TDD, architectural seams,
 # subagent orchestration, Office deliverables, and repository execution tools.
 - insert:
@@ -6,13 +6,13 @@
       name: '@deepseek-ai/dsh-agent-preset'
       config:
         id: strata-developer
-        order: 1
+        order: 2
         plugins:
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
               prefix: |
-                You are **Strata Developer**, the default software engineering preset of StrataHarness powered by the {{model}} model.
+                You are **Strata Developer**, the software engineering preset of StrataHarness powered by the {{model}} model.
 
                 ## Role & Development Cycle
 
@@ -21,7 +21,6 @@
                 1. **Step 0 — Classify before writing or modifying code:**
                    - Check `.scratch/` first to resume any matching active `.scratch/<feature>/` via `docs/handoff/*-<feature>.md` (or `LATEST.md`) and `.scratch/<feature>/TICKETS.md`.
                    - Otherwise classify **Type: Development** into `Minor` (1–2 files, clear intent, reversible), `Feature` (single subsystem, 2 interview rounds, fits in 1 session), `Epic` (multi-module or cross-cutting contracts, 3 rounds, Orchestrator), or `Fog` (unclear path, `wayfinder`), stating a one-line signal summary, and STOP at the Step 0 stop gate. (Switch to `Analysis` only if the user explicitly asks for pure code audit/research with zero edits.)
-                   - **Optional project scaffolding:** If `AGENTS.md`, `.agents/CONTEXT.md`, or an ADR directory (`docs/adr/`) is missing in the workspace, softly note in Step 0 that optional StrataHarness methodology scaffolding is available if the user wants it — never block the requested task on scaffolding. Only when the user asks to scaffold those files, read `{{strata_root}}/.agents/skills/init-project/SKILL.md` and initialize via `init-project` (or write `AGENTS.md`, `.agents/CONTEXT.md`, and `docs/adr/` directly with file tools when `pwsh` is unavailable, such as on Linux or macOS).
                 2. **Stages & Execution Strategy:**
                    - Stage 1: Interview (`grill-with-docs`, or `wayfinder` for `Fog`) ⛔
                    - Stage 2: Specification (`to-spec`, skipped for `Minor`) ⛔
@@ -39,10 +38,16 @@
                 5. **Language Policy:**
                    - User replies, specs, ADRs, tickets, and handoffs: **Russian**.
                    - Code comments, `AGENTS.md`, `SKILL.md`, public Markdown (`README.md`, `CHANGELOG.md`), commit messages, and PR titles: **English**.
+          - id: strata-workspace-scaffold
+            name: '@strata/product-bundle/workspace-scaffold'
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
             config:
               maxBytes: 65536
+              instructionFileCandidates:
+                - AGENTS.md
+                - CLAUDE.md
+                - CODING_STANDARDS.md
           - id: time-context
             name: '@deepseek-ai/dsh-time-context'
           - id: tool-bash

@@ -14,6 +14,18 @@ import type { DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
 
 const OFFICE_SKILLS = ['office', 'office-docx', 'office-pptx', 'office-xlsx']
 
+/** User patch layer for the disposable smoke profile: binds an ephemeral loopback port and budgets cold LibreOffice starts. */
+export const SMOKE_PROFILE_PATCH_YAML = [
+  '- id: webserver',
+  '  config:',
+  '    host: 127.0.0.1',
+  '    port: 0',
+  '- id: office-kit',
+  '  config:',
+  '    timeoutMs: 120000',
+  '',
+].join('\n')
+
 /**
  * Require each bundled Office skill to be listed and loaded with a nonempty body.
  * @param results - Host probe results; `bytes` is the loaded body length, 0 when unlisted or not loaded.
@@ -180,7 +192,7 @@ export function apply(ctx) {
     manifest.dependencies = { ...manifest.dependencies, [pluginName]: `file:${plugin}` }
     manifest.dsh.profile.bundles.push(pluginName)
     writeFileSync(join(profile, 'package.json'), JSON.stringify(manifest))
-    writeFileSync(join(profile, 'cordis.patch.yml'), '- id: webserver\n  config:\n    host: 127.0.0.1\n    port: 0\n')
+    writeFileSync(join(profile, 'cordis.patch.yml'), SMOKE_PROFILE_PATCH_YAML)
     const ready = await Promise.race([host.start(), new Promise<never>((_, reject) => {
       timer = setTimeout(() => { reject(new Error('desktop runtime: Host readiness exceeded 120 seconds')) }, 120_000)
     })])
