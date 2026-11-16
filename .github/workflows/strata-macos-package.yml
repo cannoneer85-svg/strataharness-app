@@ -457,16 +457,17 @@ jobs:
           name: strata-dist-${{ matrix.target }}
           path: ${{ runner.temp }}/strata-dist-${{ matrix.target }}/*
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 1
 
       - name: Upload macOS packaging run diagnostics
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v7.0.1
         with:
           name: strata-packaging-runs-${{ matrix.target }}
           path: apps/desktop/.desktop-build/packaging-runs
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 1
 
       - name: Remove temporary macOS signing certificates and API keys from RUNNER_TEMP
         if: always()

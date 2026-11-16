@@ -307,16 +307,17 @@ jobs:
           name: strata-dist-win-x64
           path: ${{ runner.temp }}/strata-dist-win-x64/*
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 1
 
       - name: Upload Windows packaging run diagnostics
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v7.0.1
         with:
           name: strata-packaging-runs-win-x64
           path: apps/desktop/.desktop-build/packaging-runs
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 1
 
       - name: Remove temporary Windows signing certificate from RUNNER_TEMP
         if: always()

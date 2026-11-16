@@ -14,8 +14,11 @@ const REPOSITORY_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const DOCS_DIRECTORY = join(REPOSITORY_ROOT, 'docs')
 const STAGED_DIRECTORY = join(REPOSITORY_ROOT, 'apps', 'cli', 'docs')
 
-/** Generated migration records and the translation guidelines: maintainer material no reader in an installed package needs. */
-const EXCLUDED_DIRECTORIES = ['persistence-changes', 'i18n'] as const
+/** Maintainer directories excluded from installed packages (migration records, i18n, and Strata operational trees). */
+const EXCLUDED_DIRECTORIES = ['persistence-changes', 'i18n', 'analysis', 'specs', 'handoff', 'strata'] as const
+
+/** Placeholder and Finder metadata files that archive builders omit. */
+const EXCLUDED_BASENAMES = new Set(['.DS_Store', '.gitkeep'])
 
 /** Translation alignment records the documentation gates own. */
 const EXCLUDED_SUFFIX = '.i18n.yaml'
@@ -161,6 +164,7 @@ async function stagedFiles(source: string, published: ReadonlySet<string>): Prom
         await walk(path)
         continue
       }
+      if (EXCLUDED_BASENAMES.has(entry.name)) continue
       if (path.endsWith(EXCLUDED_SUFFIX)) continue
       if (path.endsWith('.md') && !published.has(path) && !isUpgradeGuide(path)) continue
       files.push(path)

@@ -38,6 +38,12 @@ describe('documentation staging', () => {
     write(source, 'AGENTS.md')
     write(source, 'persistence-changes/v1/changes.md')
     write(source, 'i18n/terminology.md')
+    write(source, 'guide/.gitkeep', '')
+    write(source, 'guide/.DS_Store', 'finder')
+    write(source, 'analysis/.gitkeep', '')
+    write(source, 'specs/.gitkeep', '')
+    write(source, 'handoff/LATEST.md')
+    write(source, 'strata/fork-maintenance.md')
 
     await stageDshDocs(source, destination, published)
 
@@ -50,6 +56,7 @@ describe('documentation staging', () => {
     for (const excluded of [
       'guide/index.i18n.yaml', 'upgrade-guide/v0.1.0/change/guide.i18n.yaml',
       'postmortem', 'AGENTS.md', 'persistence-changes', 'i18n',
+      'guide/.gitkeep', 'guide/.DS_Store', 'analysis', 'specs', 'handoff', 'strata',
     ]) {
       expect(existsSync(join(destination, excluded)), excluded).toBe(false)
     }
@@ -101,6 +108,11 @@ describe('documentation staging', () => {
     const index = readFileSync(join(destination, 'upgrade-guide/README.md'), 'utf8')
     for (const file of readdirSync(join(import.meta.dirname, '..', 'docs/upgrade-guide'), { recursive: true, encoding: 'utf8' })) {
       if (file.endsWith('guide.md')) expect(index).toContain(`](${file.split('\\').join('/')})`)
+    }
+    for (const staged of readdirSync(destination, { recursive: true, encoding: 'utf8' })) {
+      const normalized = staged.split('\\').join('/')
+      expect(normalized === '.gitkeep' || normalized.endsWith('/.gitkeep'), normalized).toBe(false)
+      expect(normalized === '.DS_Store' || normalized.endsWith('/.DS_Store'), normalized).toBe(false)
     }
   })
 

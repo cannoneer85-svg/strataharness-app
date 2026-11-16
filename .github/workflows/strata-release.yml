@@ -204,6 +204,7 @@ jobs:
       )
     permissions:
       contents: write
+      actions: write
     steps:
       - name: Checkout repository and methodology submodule
         uses: actions/checkout@v7.0.1
@@ -416,3 +417,35 @@ jobs:
             --include "*.yml" \
             --cache-control "no-cache, must-revalidate" \
             "${endpoint_args[@]}"
+
+      - name: Delete temporary staging and diagnostic artifacts after release publication
+        if: success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if ! artifact_rows_raw="$(
+            gh api --paginate "repos/${REPO}/actions/runs/${RUN_ID}/artifacts?per_page=100" \
+              --jq '.artifacts[] | select(.expired == false and ((.name | startswith("strata-dist-")) or (.name | startswith("strata-packaging-runs-")))) | "\(.id)\t\(.name)"'
+          )"; then
+            echo "::warning::Could not list temporary artifacts for run ${RUN_ID}; they will expire via retention-days: 1."
+            exit 0
+          fi
+          if [[ -z "$artifact_rows_raw" ]]; then
+            echo "No temporary staging artifacts found to delete for run ${RUN_ID}."
+            exit 0
+          fi
+          mapfile -t artifact_rows <<< "$artifact_rows_raw"
+          for row in "${artifact_rows[@]}"; do
+            [[ -z "$row" ]] && continue
+            artifact_id="${row%%$'\t'*}"
+            artifact_name="${row#*$'\t'}"
+            if gh api -X DELETE "repos/${REPO}/actions/artifacts/${artifact_id}"; then
+              echo "Deleted temporary artifact ${artifact_name} (id=${artifact_id})."
+            else
+              echo "::warning::Could not delete temporary artifact ${artifact_name} (id=${artifact_id}); it will expire via retention-days: 1."
+            fi
+          done

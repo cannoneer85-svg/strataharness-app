@@ -393,6 +393,7 @@ interface WorkflowStepDoc {
   readonly id?: string
   readonly name?: string
   readonly if?: string
+  readonly 'continue-on-error'?: boolean | string
   readonly uses?: string
   readonly run?: string
   readonly shell?: string
@@ -406,6 +407,7 @@ interface WorkflowJobDoc {
   readonly 'timeout-minutes'?: number
   readonly needs?: string | readonly string[]
   readonly if?: string
+  readonly 'continue-on-error'?: boolean | string
   readonly uses?: string
   readonly permissions?: Record<string, string>
   readonly defaults?: { readonly run?: { readonly shell?: string } }
@@ -507,6 +509,7 @@ describe('StrataHarness Windows and macOS reusable packaging workflows', () => {
       step => step.uses === 'actions/upload-artifact@v7.0.1' && step.with?.name === 'strata-dist-win-x64',
     )
     expect(distUpload).toBeDefined()
+    expect(distUpload?.with?.['retention-days']).toBe(1)
 
     const diagUpload = steps.find(
       step =>
@@ -514,6 +517,8 @@ describe('StrataHarness Windows and macOS reusable packaging workflows', () => {
         && String(step.with?.path ?? '').includes('packaging-runs'),
     )
     expect(diagUpload?.if).toBe('always()')
+    expect(diagUpload?.with?.['retention-days']).toBe(1)
+    expect(diagUpload?.['continue-on-error']).toBe(true)
 
     const cleanupStep = steps.find(
       step => step.if === 'always()' && (step.run ?? '').includes('strata-win-cert.pfx'),
@@ -607,6 +612,7 @@ describe('StrataHarness Windows and macOS reusable packaging workflows', () => {
         && step.with?.name === 'strata-dist-${{ matrix.target }}',
     )
     expect(distUpload).toBeDefined()
+    expect(distUpload?.with?.['retention-days']).toBe(1)
 
     const diagUpload = steps.find(
       step =>
@@ -614,6 +620,8 @@ describe('StrataHarness Windows and macOS reusable packaging workflows', () => {
         && String(step.with?.path ?? '').includes('packaging-runs'),
     )
     expect(diagUpload?.if).toBe('always()')
+    expect(diagUpload?.with?.['retention-days']).toBe(1)
+    expect(diagUpload?.['continue-on-error']).toBe(true)
 
     const cleanupStep = steps.find(
       step =>
@@ -637,7 +645,8 @@ function validateWorkflowSecurity(filename: string, doc: WorkflowDoc): readonly 
     const jobPerms = job.permissions ?? {}
     for (const [scope, level] of Object.entries(jobPerms)) {
       if (level === 'write') {
-        const allowedPublishWrite = filename === 'strata-release.yml' && jobId === 'publish' && scope === 'contents'
+        const allowedPublishWrite =
+          filename === 'strata-release.yml' && jobId === 'publish' && (scope === 'contents' || scope === 'actions')
         const allowedRadarWrite = filename === 'strata-upstream-watch.yml' && jobId === 'radar' && scope === 'issues'
         if (!allowedPublishWrite && !allowedRadarWrite) {
           violations.push(`${filename}#${jobId}: unexpected write permission ${scope}: write`)
@@ -684,7 +693,7 @@ describe('StrataHarness atomic release orchestrator & cross-workflow security co
 
     const publishJob = doc.jobs.publish
     expect(publishJob?.['runs-on']).toBe('ubuntu-24.04')
-    expect(publishJob?.permissions).toEqual({ contents: 'write' })
+    expect(publishJob?.permissions).toEqual({ contents: 'write', actions: 'write' })
     expect(publishJob?.needs).toEqual(['preflight', 'package-windows', 'package-macos'])
     expect(publishJob?.if).toContain("needs.preflight.result == 'success'")
     expect(publishJob?.if).toContain("needs.package-windows.result == 'success'")
@@ -704,6 +713,19 @@ describe('StrataHarness atomic release orchestrator & cross-workflow security co
     expect(publishRuns).toContain('gh release')
     expect(publishRuns).toContain('RELEASE_NOTES.md')
     expect(publishRuns).toContain('SHA256SUMS.txt')
+
+    const releaseStepIndex = publishSteps.findIndex(step => (step.run ?? '').includes('gh release create'))
+    const cleanupArtifactsStepIndex = publishSteps.findIndex(
+      step => (step.run ?? '').includes('gh api -X DELETE') && (step.run ?? '').includes('strata-dist-'),
+    )
+    expect(releaseStepIndex).toBeGreaterThan(-1)
+    expect(cleanupArtifactsStepIndex).toBeGreaterThan(releaseStepIndex)
+    const cleanupArtifactsStep = publishSteps[cleanupArtifactsStepIndex]
+    expect(cleanupArtifactsStep?.if).toBe('success()')
+    expect(cleanupArtifactsStep?.['continue-on-error']).toBe(true)
+    expect(cleanupArtifactsStep?.run).toContain('strata-packaging-runs-')
+    expect(cleanupArtifactsStep?.run).toContain('gh api --paginate')
+    expect(cleanupArtifactsStep?.run).toContain('::warning::Could not list temporary artifacts')
 
     const s3Step = publishSteps.find(step => (step.run ?? '').includes('aws s3 sync'))
     expect(s3Step).toBeDefined()
@@ -773,13 +795,14 @@ describe('StrataHarness atomic release orchestrator & cross-workflow security co
       permissions: { contents: 'read' },
       jobs: {
         package: {
-          permissions: { contents: 'write' },
+          permissions: { contents: 'write', actions: 'write' },
           steps: [{ name: 'Injected', run: 'echo ${{ inputs.signing_mode }}' }],
         },
       },
     }
     expect(validateWorkflowSecurity('strata-windows-package.yml', unsafeSyntheticWorkflow)).toEqual([
       'strata-windows-package.yml#package: unexpected write permission contents: write',
+      'strata-windows-package.yml#package: unexpected write permission actions: write',
       'strata-windows-package.yml#package (Injected): direct inputs/secrets interpolation in run:',
     ])
 

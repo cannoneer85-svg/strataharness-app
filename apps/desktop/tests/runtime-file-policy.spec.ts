@@ -32,6 +32,7 @@ it('omits development artifacts while preserving executable modules, assets and 
     '@deepseek-ai/libreoffice-kit-wasm/assets/soffice.data',
     '@deepseek-ai/libreoffice-kit-darwin-arm64/bin/dsoffice',
     '.modules.yaml', '.pnpm-workspace-state-v1.json', '.bin/tool', '.pnpm/cache',
+    'example/.gitkeep', 'example/.DS_Store', '@deepseek-ai/dsh/docs/analysis/.gitkeep',
   ]
   const retained = [
     'example/index.js', 'example/index.cjs', 'example/index.mjs', 'example/worker.js',
