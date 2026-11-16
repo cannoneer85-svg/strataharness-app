@@ -28,7 +28,7 @@ import * as yaml from 'js-yaml'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 import * as desktopLocale from '../../apps/desktop/src/locale.ts'
-import { OFFICIAL_ON_DEMAND_CATALOG } from '../../packages/boot/app-boot/src/official-bundles.generated.ts'
+import { OFFICIAL_ON_DEMAND_CATALOG } from '../../packages/util/official-bundles/src/catalog.generated.ts'
 
 const REPO_ROOT = resolve(import.meta.dirname, '../..')
 const IGNORED_DIRS = new Set(['node_modules', 'lib', 'dist', 'tests', '.git'])
@@ -512,50 +512,84 @@ async function discoverClientNamespacesAndEnglishDictionaries(
         throw new Error(`Russian parity gate: cannot resolve namespace argument in ${relative(REPO_ROOT, file)}`)
       }
       if (call.arguments.length === 2) {
-        const objLiteral = unwrapExpression(call.arguments[1])
-        if (objLiteral === undefined || !ts.isObjectLiteralExpression(objLiteral)) {
-          throw new Error(`Russian parity gate: expected { zh, en } literal for "${namespace}" in ${relative(REPO_ROOT, file)}`)
-        }
-        for (const prop of objLiteral.properties) {
-          const propName = prop.name !== undefined && (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name))
-            ? prop.name.text
-            : undefined
-          if (propName !== 'en') continue
-          let identName: string | undefined
-          if (ts.isShorthandPropertyAssignment(prop)) {
-            identName = prop.name.text
-          } else if (ts.isPropertyAssignment(prop)) {
-            const unwrappedInit = unwrapExpression(prop.initializer)
-            if (unwrappedInit !== undefined && ts.isIdentifier(unwrappedInit)) {
-              identName = unwrappedInit.text
-            } else {
-              const inlineDict = extractInlineStringDictionary(prop.initializer)
-              if (inlineDict === undefined) {
-                throw new Error(`Russian parity gate: unsupported inline English dictionary for "${namespace}" in ${relative(REPO_ROOT, file)}`)
-              }
-              englishNamespaces.set(namespace, inlineDict)
-              continue
-            }
-          }
-          if (identName === undefined) {
-            throw new Error(`Russian parity gate: cannot resolve English dictionary binding for "${namespace}" in ${relative(REPO_ROOT, file)}`)
-          }
-          const imported = findImportTarget(file, identName)
-          const targetModulePath = imported !== undefined ? imported.file : file
-          const targetExportName = imported !== undefined ? imported.exportName : identName
-          const loadedModule = (await import(pathToFileURL(targetModulePath).href)) as Record<string, unknown>
-          const loadedDict = loadedModule[targetExportName]
-          if (!isPlainRecord(loadedDict)) {
-            throw new Error(`Russian parity gate: "${targetExportName}" in ${relative(REPO_ROOT, targetModulePath)} is not a dictionary object`)
+        const normalizeStringDict = (
+          dictObj: unknown,
+          sourceFile: string,
+        ): Readonly<Record<string, string>> => {
+          if (!isPlainRecord(dictObj)) {
+            throw new Error(`Russian parity gate: dictionary for "${namespace}" in ${relative(REPO_ROOT, sourceFile)} is not an object`)
           }
           const normalized: Record<string, string> = {}
-          for (const [key, value] of Object.entries(loadedDict)) {
+          for (const [key, value] of Object.entries(dictObj)) {
             if (typeof value !== 'string') {
-              throw new Error(`Russian parity gate: "${namespace}.${key}" in ${relative(REPO_ROOT, targetModulePath)} is not a string`)
+              throw new Error(`Russian parity gate: "${namespace}.${key}" in ${relative(REPO_ROOT, sourceFile)} is not a string`)
             }
             normalized[key] = value
           }
-          englishNamespaces.set(namespace, normalized)
+          return normalized
+        }
+
+        const resolveObjectLiteralDictionary = async (
+          ownerFile: string,
+          objLiteral: ts.ObjectLiteralExpression,
+        ): Promise<void> => {
+          for (const prop of objLiteral.properties) {
+            const propName = prop.name !== undefined && (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name))
+              ? prop.name.text
+              : undefined
+            if (propName !== 'en') continue
+            let identName: string | undefined
+            if (ts.isShorthandPropertyAssignment(prop)) {
+              identName = prop.name.text
+            } else if (ts.isPropertyAssignment(prop)) {
+              const unwrappedInit = unwrapExpression(prop.initializer)
+              if (unwrappedInit !== undefined && ts.isIdentifier(unwrappedInit)) {
+                identName = unwrappedInit.text
+              } else {
+                const inlineDict = extractInlineStringDictionary(prop.initializer)
+                if (inlineDict === undefined) {
+                  throw new Error(`Russian parity gate: unsupported inline English dictionary for "${namespace}" in ${relative(REPO_ROOT, ownerFile)}`)
+                }
+                englishNamespaces.set(namespace, inlineDict)
+                continue
+              }
+            }
+            if (identName === undefined) {
+              throw new Error(`Russian parity gate: cannot resolve English dictionary binding for "${namespace}" in ${relative(REPO_ROOT, ownerFile)}`)
+            }
+            const imported = findImportTarget(ownerFile, identName)
+            const targetModulePath = imported !== undefined ? imported.file : ownerFile
+            const targetExportName = imported !== undefined ? imported.exportName : identName
+            const loadedModule = (await import(pathToFileURL(targetModulePath).href)) as Record<string, unknown>
+            const loadedDict = loadedModule[targetExportName]
+            if (!isPlainRecord(loadedDict)) {
+              throw new Error(`Russian parity gate: "${targetExportName}" in ${relative(REPO_ROOT, targetModulePath)} is not a dictionary object`)
+            }
+            englishNamespaces.set(namespace, normalizeStringDict(loadedDict, targetModulePath))
+          }
+        }
+
+        const arg1 = unwrapExpression(call.arguments[1])
+        if (arg1 !== undefined && ts.isObjectLiteralExpression(arg1)) {
+          await resolveObjectLiteralDictionary(file, arg1)
+        } else if (arg1 !== undefined && ts.isIdentifier(arg1)) {
+          const localInit = unwrapExpression(findVariableInitializer(sf, arg1.text))
+          if (localInit !== undefined && ts.isObjectLiteralExpression(localInit)) {
+            await resolveObjectLiteralDictionary(file, localInit)
+          } else {
+            const imported = findImportTarget(file, arg1.text)
+            if (imported === undefined) {
+              throw new Error(`Russian parity gate: expected { zh, en } literal for "${namespace}" in ${relative(REPO_ROOT, file)}`)
+            }
+            const loadedModule = (await import(pathToFileURL(imported.file).href)) as Record<string, unknown>
+            const loadedContainer = loadedModule[imported.exportName]
+            if (!isPlainRecord(loadedContainer) || !isPlainRecord(loadedContainer.en)) {
+              throw new Error(`Russian parity gate: "${imported.exportName}.en" in ${relative(REPO_ROOT, imported.file)} is not a dictionary object`)
+            }
+            englishNamespaces.set(namespace, normalizeStringDict(loadedContainer.en, imported.file))
+          }
+        } else {
+          throw new Error(`Russian parity gate: expected { zh, en } literal for "${namespace}" in ${relative(REPO_ROOT, file)}`)
         }
       } else if (call.arguments.length >= 3) {
         let matchedInline = false
@@ -782,6 +816,7 @@ interface LoadedLocaleRuntime {
     ns: string,
     localeOrDicts: string | Record<string, Record<string, string>>,
     dict?: Record<string, string>,
+    options?: { readonly override?: boolean },
   ): () => void
   getLocale(): {
     readonly active: string
@@ -862,12 +897,13 @@ describe('StrataHarness 100% Russian localization parity gate', { timeout: 30_00
         ns: string,
         localeOrDicts: string | Record<string, Record<string, string>>,
         dict?: Record<string, string>,
+        options?: { readonly override?: boolean },
       ) => {
         if (typeof localeOrDicts === 'string') {
           if (localeOrDicts === 'ru' && dict !== undefined) {
             russianNamespaces.set(ns, dict)
           }
-          return originalRegister(ns, localeOrDicts, dict ?? {})
+          return originalRegister(ns, localeOrDicts, dict ?? {}, options)
         }
         return originalRegister(ns, localeOrDicts)
       }

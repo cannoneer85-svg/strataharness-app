@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { createScope } from '@deepseek-ai/dsh-scope'
-import { assembleContextFor } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { assembleContextFor } from '@deepseek-ai/dsh-agent'
 import { entryListProblem } from '../src/index.ts'
 import { currentKey, harness, declare, contribution, agentOn, liveRegistries, plugin } from './harness.ts'
 import { omitsGeneratedPage } from '../../../settings/settings/tests/live-config.ts'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import AgentPresets from '../src/index.ts'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 
 const contexts: Context[] = []
 afterEach(async () => { for (const ctx of contexts.splice(0)) await ctx.fiber.dispose() })
@@ -108,7 +108,7 @@ describe('declarative preset revisions', () => {
     await declare(ctx, contribution('minimal'))
     const agent = await agentOn(ctx, 'selection')
     expect(await ctx.agentPresets.select(agent, 'minimal')).toBe('minimal')
-    expect(ctx.sessionProjections.stateOf(agent.session, 'agentPreset')).toBe('minimal')
+    expect(ctx.sessionProjections.checkpoint(agent.session).agentPreset?.val).toBe('minimal')
     agent.session.append('turn/start', { turn: 1 })
     await expect(ctx.agentPresets.select(agent, 'standard')).rejects.toThrow('already started')
   })
@@ -246,6 +246,7 @@ it('ignores a retired modeSelectionEnabled field in the user patch', async () =>
 it('keeps its own instance off the generated Settings pages', () => omitsGeneratedPage(async (ctx) => {
   await ctx.plugin(Loader)
   await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(AgentRegistry)
   return ctx.plugin(AgentPresets, { default: 'standard' })
 }))
 
@@ -276,7 +277,7 @@ it('serializes competing blank-session selections and recovers after a failed se
     ctx.agentPresets.select(agent, 'absent'), ctx.agentPresets.select(agent, 'minimal'), ctx.agentPresets.select(agent, 'standard'),
   ])
   expect(results.map(row => row.status)).toEqual(['rejected', 'fulfilled', 'fulfilled'])
-  expect(ctx.sessionProjections.stateOf(agent.session, 'agentPreset')).toBe('standard')
+  expect(ctx.sessionProjections.checkpoint(agent.session).agentPreset?.val).toBe('standard')
 })
 
 it('retains a newly acquired generation when a previous activation is replaced', async () => {
@@ -317,11 +318,11 @@ it('logs the default preset a blank Session runs once it is selected without a r
   const ctx = await setup()
   await declare(ctx, contribution('standard'))
   const agent = await agentOn(ctx, 'unrecorded')
-  expect(ctx.sessionProjections.stateOf(agent.session, 'agentPreset')).toBeNull()
+  expect(ctx.agentPresets.presetForSession(agent.session)).toBeNull()
 
   expect(await ctx.agentPresets.select(agent, 'standard')).toBe('standard')
 
-  expect(ctx.sessionProjections.stateOf(agent.session, 'agentPreset')).toBe('standard')
+  expect(ctx.agentPresets.presetForSession(agent.session)).toBe('standard')
 })
 
 it('recomposes and logs a repeated selection once the preset definition was replaced', async () => {
@@ -348,7 +349,7 @@ it('does not lose the durable selection when a tools observer rejects notificati
   const agent = await agentOn(ctx, 'observer')
   ctx.on('tools/change', () => { throw new Error('observer refused') })
   expect(await ctx.agentPresets.select(agent, 'minimal')).toBe('minimal')
-  expect(ctx.sessionProjections.stateOf(agent.session, 'agentPreset')).toBe('minimal')
+  expect(ctx.sessionProjections.checkpoint(agent.session).agentPreset?.val).toBe('minimal')
 })
 
 it('inventories failed conditional entries without executing their expressions again', async () => {
@@ -410,4 +411,123 @@ it('reports every process-global service published by a preset', async () => {
   } }
   await declare(ctx, { id: 'leaks', plugins: [{ name: 'cordis:leaks' }] })
   expect((await ctx.agentPresets.resolve('leaks')).broken).toContain('presetAlpha, presetZulu')
+})
+
+describe('preset aliases', () => {
+  it('normalizes legacy deployment default and selectedDefault to canonical defaultId while hiding aliases from rosters', async () => {
+    const ctx = await harness({
+      live: true,
+      default: 'strata',
+      aliases: { strata: 'strata-developer', legacy: 'minimal' },
+    })
+    contexts.push(ctx)
+    const live = liveRegistries.get(ctx)!
+    await declare(ctx, { ...contribution('strata-developer'), name: 'Strata Developer', order: 1 })
+    await declare(ctx, { ...contribution('minimal'), name: 'Minimal', order: 2 })
+
+    expect(ctx.agentPresets.defaultId).toBe('strata-developer')
+    expect((await ctx.agentPresets.list()).map(row => row.id)).toEqual(['strata-developer', 'minimal'])
+    expect(await ctx.agentPresets.remoteExportList()).toEqual({
+      presets: [
+        { id: 'strata-developer', name: 'Strata Developer', order: 1, isDefault: true },
+        { id: 'minimal', name: 'Minimal', order: 2, isDefault: false },
+      ],
+    })
+    expect((await ctx.agentPresets.compositionInventory()).map(row => ({ id: row.id, isDefault: row.isDefault }))).toEqual([
+      { id: 'strata-developer', isDefault: true },
+      { id: 'minimal', isDefault: false },
+    ])
+
+    await live.update({ selectedDefault: 'legacy' })
+    expect(ctx.agentPresets.defaultId).toBe('minimal')
+    expect(await ctx.agentPresets.resolve()).toEqual({ id: 'minimal' })
+    expect(await ctx.agentPresets.mount(createScope(ctx, {}).ctx)).toEqual({ id: 'minimal' })
+    await using minimalLease = await ctx.agentPresets.acquireScope()
+    expect(minimalLease.key).toBe(await currentKey(ctx, 'minimal'))
+    expect((await ctx.agentPresets.remoteExportList()).presets.find(row => row.isDefault)?.id).toBe('minimal')
+
+    await live.update({ selectedDefault: 'strata' })
+    expect(ctx.agentPresets.defaultId).toBe('strata-developer')
+    expect(await ctx.agentPresets.resolve()).toEqual({ id: 'strata-developer' })
+  })
+
+  it('normalizes legacy IDs across resolve, readDocument, retain, mount, and select', async () => {
+    const ctx = await harness({
+      default: 'strata-developer',
+      aliases: { strata: 'strata-developer', 'old-minimal': 'minimal' },
+    })
+    contexts.push(ctx)
+    await declare(ctx, { ...contribution('strata-developer'), name: 'Strata Developer' })
+    await declare(ctx, { ...contribution('minimal'), name: 'Minimal' })
+
+    expect(await ctx.agentPresets.resolve('strata')).toEqual({ id: 'strata-developer' })
+    expect(await ctx.agentPresets.readDocument('strata')).toMatchObject({
+      agentPreset: 'strata-developer',
+      name: 'Strata Developer',
+      content: expect.any(String) as string,
+    })
+
+    await using lease = await ctx.agentPresets.acquireScope('strata')
+    expect(lease.key).toBe(await currentKey(ctx, 'strata-developer'))
+
+    const scope = createScope(ctx, {})
+    expect(await ctx.agentPresets.mount(scope.ctx, 'strata')).toEqual({ id: 'strata-developer' })
+    expect(ctx.agentPresets.composedPreset(scope.ctx)).toBe('strata-developer')
+    await expect(ctx.agentPresets.recompose(scope.ctx, 'old-minimal')).resolves.toEqual({ id: 'minimal' })
+    expect(ctx.agentPresets.composedPreset(scope.ctx)).toBe('minimal')
+
+    const agent = await agentOn(ctx, 'legacy-session', 'strata')
+    expect(ctx.agentPresets.composedPreset(agent.ctx)).toBe('strata-developer')
+    expect(await ctx.agentPresets.select(agent, 'old-minimal')).toBe('minimal')
+    expect(ctx.agentPresets.presetForSession(agent.session)).toBe('minimal')
+    expect(await ctx.agentPresets.select(agent, 'old-minimal')).toBe('minimal')
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'agent-preset/selected')).toHaveLength(1)
+  })
+
+  it('reports agent-preset/not-found when an alias targets a missing preset and preserves broken diagnostics', async () => {
+    const ctx = await harness({
+      default: 'strata-developer',
+      aliases: { 'missing-target': 'absent', 'broken-alias': 'broken-canonical' },
+    })
+    contexts.push(ctx)
+    await declare(ctx, contribution('strata-developer'))
+    await declare(ctx, { id: 'broken-canonical', plugins: [{ name: 'missing-preset-plugin-for-test' }] })
+
+    await expect(ctx.agentPresets.resolve('missing-target')).rejects.toMatchObject({ code: 'agent-preset/not-found' })
+    await expect(ctx.agentPresets.readDocument('missing-target')).rejects.toMatchObject({ code: 'agent-preset/not-found' })
+    await expect(ctx.agentPresets.acquireScope('missing-target')).rejects.toMatchObject({ code: 'agent-preset/not-found' })
+    await expect(ctx.agentPresets.mount(createScope(ctx, {}).ctx, 'missing-target')).rejects.toMatchObject({ code: 'agent-preset/not-found' })
+
+    expect(await ctx.agentPresets.resolve('broken-alias')).toMatchObject({
+      id: 'broken-canonical',
+      broken: expect.any(String) as string,
+    })
+    await expect(ctx.agentPresets.mount(createScope(ctx, {}).ctx, 'broken-alias')).rejects.toMatchObject({ code: 'agent-preset/invalid' })
+    await expect(ctx.agentPresets.acquireScope('broken-alias')).rejects.toMatchObject({ code: 'agent-preset/invalid' })
+  })
+
+  it.each([
+    { '': 'standard' },
+    { '   ': 'standard' },
+    { strata: '' },
+    { strata: '   ' },
+    { strata: 'strata' },
+    { a: 'b', b: 'standard' },
+    { a: 'b', b: 'a' },
+  ])('fails loud at load for invalid aliases %j', async (aliases) => {
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(Loader)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(AgentRegistry)
+    await expect(ctx.plugin(AgentPresets, { default: 'standard', aliases }).then(() => 'mounted')).rejects.toThrow(/alias/i)
+  })
+
+  it('fails loud when registering a canonical preset whose id collides with an alias key', async () => {
+    const ctx = await harness({ aliases: { strata: 'standard' } })
+    contexts.push(ctx)
+    await declare(ctx, contribution('standard'))
+    await expect(declare(ctx, contribution('strata'))).rejects.toThrow(/alias/i)
+    expect((await ctx.agentPresets.list()).map(row => row.id)).toEqual(['standard'])
+  })
 })

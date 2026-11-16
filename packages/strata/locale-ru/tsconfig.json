@@ -15,7 +15,13 @@
       "path": "../../client/locale/tsconfig.client.json"
     },
     {
+      "path": "../../client/ui-account-notifications"
+    },
+    {
       "path": "../../client/ui-agent-preset"
+    },
+    {
+      "path": "../../client/ui-agent-team"
     },
     {
       "path": "../../client/ui-approval"
@@ -27,16 +33,22 @@
       "path": "../../client/ui-commands"
     },
     {
-      "path": "../../client/ui-conversation/tsconfig.client.json"
+      "path": "../../client/ui-context-menu"
     },
     {
-      "path": "../../client/ui-deepseek-model-label-1017"
+      "path": "../../client/ui-conversation/tsconfig.client.json"
     },
     {
       "path": "../../client/ui-deliverables/tsconfig.client.json"
     },
     {
       "path": "../../client/ui-entry-customization"
+    },
+    {
+      "path": "../../client/ui-file-actions"
+    },
+    {
+      "path": "../../client/ui-file-drag"
     },
     {
       "path": "../../client/ui-goal"
@@ -144,7 +156,7 @@
       "path": "../../client/ui-theme/tsconfig.client.json"
     },
     {
-      "path": "../../client/ui-trajectory"
+      "path": "../../client/ui-trajectory/tsconfig.client.json"
     },
     {
       "path": "../../client/ui-user-questions"
@@ -156,7 +168,7 @@
       "path": "../../client/ui-workspace"
     },
     {
-      "path": "../../experimental/client-ui-agent-team"
+      "path": "../../experimental/client-ui-action-cards"
     },
     {
       "path": "../../experimental/client-ui-claude-code-mods"
@@ -165,16 +177,40 @@
       "path": "../../experimental/client-ui-cot-translation/tsconfig.client.json"
     },
     {
+      "path": "../../experimental/client-ui-creation-recommendations"
+    },
+    {
+      "path": "../../experimental/client-ui-forge/tsconfig.client.json"
+    },
+    {
+      "path": "../../experimental/client-ui-plugin-recommendations"
+    },
+    {
+      "path": "../../experimental/client-ui-stats"
+    },
+    {
       "path": "../../experimental/client-ui-voice-input"
     },
     {
+      "path": "../../experimental/cua/tsconfig.client.json"
+    },
+    {
+      "path": "../../experimental/deepseek-chat-import/tsconfig.client.json"
+    },
+    {
       "path": "../../experimental/inspector/tsconfig.client.json"
+    },
+    {
+      "path": "../../experimental/liveshare/tsconfig.client.json"
     },
     {
       "path": "../../experimental/session-inspector"
     },
     {
       "path": "../../extensions/ui-cordis"
+    },
+    {
+      "path": "../../session/message-quotes"
     },
     {
       "path": "../../session-query/session-log-export/tsconfig.client.json"

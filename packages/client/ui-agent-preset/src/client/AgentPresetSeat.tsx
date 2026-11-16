@@ -22,13 +22,13 @@ import {
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { AgentPresetSeatState } from './seat-store.ts'
 import { presetDisplayText } from './locales.ts'
-import { requiresCodingTools } from './settings-store.ts'
+import { findPresetOption, requiresCodingTools } from './settings-store.ts'
 import css from './AgentPresetSeat.module.css'
 
 /** Registration-side business face for the hero chip. */
 export interface AgentPresetSeatInjected {
   hooks: {
-    /** Shared Developer tools preference; off hides the PTC and Minimal menu choices. */
+    /** Shared Developer tools preference; off hides the PTC, Minimal, and Creator (`cordis`) menu choices. */
     developerTools: ObservableSnapshot<boolean>
     /** Seat snapshot bound by the renderer as useAgentPresetSeat. */
     agentPresetSeat: SnapshotStore<AgentPresetSeatState>
@@ -111,7 +111,7 @@ export function AgentPresetSeat({
     setOpen(false)
   }, [developerTools, options.length])
 
-  const chosen = state.options.find(option => option.id === state.current)
+  const chosen = findPresetOption(state.options, state.current)
   const chosenText = chosen === undefined ? undefined : presetDisplayText(chosen, t)
   const label = chosenText?.name ?? state.current
   const ready = state.options.length > 0 && state.current !== ''
@@ -178,7 +178,7 @@ export function AgentPresetSeat({
             ),
           }
         })}
-        selectedId={state.current}
+        selectedId={chosen?.id ?? state.current}
         onSelect={(id) => {
           setOpen(false)
           void select(id)

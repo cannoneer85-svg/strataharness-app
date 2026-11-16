@@ -49,7 +49,7 @@ export async function createUpdateServer() {
       }
       const strataFeedPrefix = '/strataharness/feeds/win-x64'
       const strataExeName = `strataharness-${version}-win-x64.exe`
-      if (path === `${strataFeedPrefix}/latest.yml`) {
+      if (path === `${strataFeedPrefix}/stable.yml`) {
         if (selectedMode === 'feed-stall') return
         if (selectedMode === 'feed-404') { response.writeHead(404).end(); return }
         if (selectedMode === 'feed-408') { response.writeHead(408).end(); return }

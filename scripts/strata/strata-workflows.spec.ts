@@ -53,6 +53,7 @@ function createReleaseRepoFixture(overrides?: {
     productVersion: overrides?.productVersion ?? '1.0.0',
     upstreamBaseTag: overrides?.upstreamBaseTag ?? 'dsh-v0.2.1-rc.4',
     upstreamRepository: 'https://github.com/deepseek-ai/deepseek-harness.git',
+    releaseRepository: 'https://github.com/cannoneer85-svg/strataharness-app.git',
   })
   if (overrides?.omitMethodologySkills !== true) {
     writeText(repoRoot, 'resources/strataharness/AGENTS.md', '# StrataHarness Methodology\n')

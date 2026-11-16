@@ -15,4 +15,6 @@ export interface Config {
   default: string
   /** User-selected default; edited through Settings. */
   selectedDefault: Volatile<string | undefined>
+  /** Legacy preset IDs mapped to canonical preset IDs. */
+  aliases?: Record<string, string>
 }

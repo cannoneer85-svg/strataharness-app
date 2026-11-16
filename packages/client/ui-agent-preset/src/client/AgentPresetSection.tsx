@@ -16,7 +16,7 @@ import css from './AgentPresetSection.module.css'
 export interface AgentPresetSectionInjected {
   hooks: {
     agentPresetSection: SnapshotStore<AgentPresetSectionState>
-    /** Shared Coding Tools preference; off hides the built-in PTC and Minimal cards. */
+    /** Shared Coding Tools preference; off hides the built-in PTC, Minimal, and Creator (`cordis`) cards and Creator-draft entry. */
     developerTools: ObservableSnapshot<boolean>
   }
   /** Stage the `cordis` preset and start a Creator-mode task; absent without a conversation flow. */
@@ -80,11 +80,13 @@ export function AgentPresetSection({
   const viewed = state.view
   const viewedRow = viewed === null ? undefined : state.rows.find(row => row.id === viewed.id)
   const viewedTitle = viewed === null ? '' : viewedRow === undefined ? viewed.title : presetDisplayText(viewedRow, t).name
-  // Creator mode authors presets in conversation; it needs the flow to land a
-  // session in and the self-referential preset on the roster.
-  const creator = startCreatorDraft !== undefined && state.rows.some(row => row.id === 'cordis') ? startCreatorDraft : undefined
-  /* The custom group is where a preset of one's own appears, so its entry
-     stays on screen even while the group is empty. */
+  // Creator mode authors presets in conversation; it requires Coding Tools and
+  // the self-referential `cordis` preset on the roster.
+  const creator = developerTools && startCreatorDraft !== undefined && state.rows.some(row => row.id === 'cordis')
+    ? startCreatorDraft
+    : undefined
+  /* The custom group renders the Creator-draft entry below custom cards while
+     Coding Tools and `cordis` are available, even when no custom preset exists. */
   const creatorButton = creator === undefined
     ? null
     : (

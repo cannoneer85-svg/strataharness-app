@@ -48,10 +48,30 @@ export interface AgentPresetOption {
 
 /** Whether a shipped preset requires the Coding Tools preference.
  * @param preset Roster entry; named custom overrides keep their own behavior.
- * @returns True only for the built-in PTC and Minimal presets.
+ * @returns True only for the built-in PTC, Minimal, and Creator presets.
  */
 export function requiresCodingTools(preset: AgentPresetOption | undefined): boolean {
-  return preset !== undefined && isBuiltInPreset(preset) && (preset.id === 'ptc' || preset.id === 'minimal')
+  return preset !== undefined && isBuiltInPreset(preset)
+    && (preset.id === 'ptc' || preset.id === 'minimal' || preset.id === 'cordis')
+}
+
+const LEGACY_PRESET_ALIASES: Readonly<Record<string, string>> = {
+  strata: 'strata-developer',
+}
+
+/**
+ * Look up a preset option by id, falling back to documented legacy aliases.
+ * @param options Roster options available in the UI.
+ * @param id Preset identifier recorded on a session or staged selection.
+ * @returns Matching roster entry when present, otherwise undefined.
+ */
+export function findPresetOption(
+  options: readonly AgentPresetOption[],
+  id: string,
+): AgentPresetOption | undefined {
+  const canonical = LEGACY_PRESET_ALIASES[id]
+  return options.find(entry => entry.id === id)
+    ?? (canonical === undefined ? undefined : options.find(entry => entry.id === canonical))
 }
 
 /** One roster entry exactly as the host reports it. */

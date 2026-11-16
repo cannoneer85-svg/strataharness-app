@@ -104,7 +104,7 @@ describe('document language', () => {
     const observer = new MutationObserver(() => {})
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] })
     try {
-      const remove = locale.addLanguage({ id: 'ja', label: '日本語', fallback: 'en' })
+      const remove = locale.addLanguage({ id: 'it', label: 'Italiano', fallback: 'en' })
       expect(observer.takeRecords()).toHaveLength(0)
       remove()
       expect(observer.takeRecords()).toHaveLength(0)
@@ -116,29 +116,29 @@ describe('document language', () => {
     }
   })
 
-  it('preserves served <html lang="ru"> while awaiting Phase-1 language pack registration, and settles to en if unregistered', async () => {
-    document.documentElement.lang = 'ru'
+  it('preserves served <html lang="it"> while awaiting Phase-1 language pack registration, and settles to en if unregistered', async () => {
+    document.documentElement.lang = 'it'
     vi.stubGlobal('__DSH_LOCALE_CONFIG__', {
-      defaultLocale: 'ru',
-      localeOrder: ['ru', 'en', 'zh'],
+      defaultLocale: 'it',
+      localeOrder: ['it', 'en', 'zh'],
     })
     const observer = new MutationObserver(() => {})
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] })
     try {
       const { ctx, locale } = await bench()
-      expect(langOf()).toBe('ru')
+      expect(langOf()).toBe('it')
       expect(observer.takeRecords()).toHaveLength(0)
 
-      locale.addLanguage({ id: 'ru', label: 'Русский', fallback: 'en' })
-      expect(langOf()).toBe('ru')
+      locale.addLanguage({ id: 'it', label: 'Italiano', fallback: 'en' })
+      expect(langOf()).toBe('it')
       expect(observer.takeRecords()).toHaveLength(0)
       await ctx.fiber.dispose()
 
-      // When @strata/locale-ru is disabled, the fallback macrotask syncs <html lang="en"> without bridge.
-      document.documentElement.lang = 'ru'
+      // When the external language pack is disabled, the fallback macrotask syncs <html lang="en"> without bridge.
+      document.documentElement.lang = 'it'
       observer.takeRecords()
       const unloaded = await bench()
-      expect(langOf()).toBe('ru')
+      expect(langOf()).toBe('it')
       await new Promise((resolve) => { setTimeout(resolve, 10) })
       expect(langOf()).toBe('en')
       await unloaded.ctx.fiber.dispose()

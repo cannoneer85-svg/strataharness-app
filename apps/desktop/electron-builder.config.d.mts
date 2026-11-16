@@ -4,6 +4,7 @@ import type { AfterPackContext, BeforePackContext } from 'app-builder-lib'
 export interface DesktopElectronBuilderConfig {
   readonly appId: string
   readonly productName: string
+  readonly copyright: string
   readonly artifactName: string
   readonly protocols: readonly [{ readonly name: 'StrataHarness'; readonly schemes: readonly ['strata'] }]
   readonly directories: {
@@ -19,7 +20,7 @@ export interface DesktopElectronBuilderConfig {
     readonly version: string
     readonly dshEngineVersion: string
     readonly dshDesktopAppId: string
-    readonly dshDesktopUpdateChannel: 'nightly' | 'latest'
+    readonly dshDesktopUpdateChannel: 'nightly' | 'stable'
   }
   readonly asarUnpack: readonly string[]
   readonly extraResources: readonly [
@@ -56,6 +57,7 @@ export interface DesktopElectronBuilderConfig {
     }
   }
   readonly nsis: {
+    readonly uninstallDisplayName: '${productName}'
     readonly include: string
     readonly oneClick: false
     readonly perMachine: false
@@ -68,7 +70,7 @@ export interface DesktopElectronBuilderConfig {
   readonly afterPack: (context: AfterPackContext) => Promise<void>
   readonly afterSign: (context: AfterPackContext) => Promise<void>
   readonly artifactBuildCompleted: (artifact: { readonly file: string }) => Promise<void> | undefined
-  readonly publish: readonly [{ readonly provider: 'generic', readonly url: string, readonly channel: 'nightly' | 'latest' }] | null
+  readonly publish: readonly [{ readonly provider: 'generic', readonly url: string, readonly channel: 'nightly' | 'stable' }] | null
 }
 
 /**

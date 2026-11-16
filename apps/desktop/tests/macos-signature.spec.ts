@@ -51,6 +51,7 @@ describe('desktop macOS release signature', () => {
     expect(config.protocols).toEqual([{ name: 'StrataHarness', schemes: ['strata'] }])
     expect(portablePath(config.directories.output)).toContain('/.desktop-build/targets/mac-arm64/artifacts')
     expect(config.mac.extendInfo.NSMicrophoneUsageDescription).toContain('microphone')
+    expect(config.mac.extendInfo.CFBundleLocalizations).toEqual(['ru', 'en', 'zh_CN'])
     expect(config.mac.entitlementsInherit).toBe(config.mac.entitlements)
     const entitlements = readFileSync(config.mac.entitlements, 'utf8')
     for (const key of ['com.apple.security.cs.allow-jit', 'com.apple.security.cs.allow-unsigned-executable-memory',
@@ -74,6 +75,7 @@ describe('desktop macOS release signature', () => {
     expect(config.asarUnpack).toEqual(expect.arrayContaining([
       '**/*.{node,dylib,dll,so,exe}',
       '**/@vscode/ripgrep-*/bin/rg',
+      '**/node_modules/@deepseek-ai/dsh-experimental-cua-macos/native/bin/**/*',
     ]))
     expect(config).toMatchObject({
       appId: RELEASE_ENVIRONMENT.DSH_DESKTOP_APP_ID,

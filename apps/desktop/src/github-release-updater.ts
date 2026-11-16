@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gt, lte, parse, prerelease, rcompare } from 'semver'
 import { parseGitHubReleaseRepository } from './update-channel.ts'
-import { assertIsolatedUpdaterRequestTarget } from './update-http-executor.ts'
+import { assertIsolatedUpdaterRequestTarget } from './updates/electron-updater/http-executor.ts'
 
 const RELEASE_TAG_PREFIX = 'strata-v'
 const CHECKSUMS_ASSET_NAME = 'SHA256SUMS.txt'
@@ -176,7 +176,7 @@ export function resolveGitHubReleasePlatformTarget(
  * @param assets - Assets attached to the GitHub Release.
  * @param platform - Target OS platform (`win32` or `darwin`).
  * @param arch - Target CPU architecture (`x64` or `arm64`).
- * @returns Validated installer and checksum assets with signed/unsigned provenance.
+ * @returns Validated installer and checksum assets with signed/unsigned signature status.
  */
 export function selectGitHubReleaseAssets(
   version: string,
@@ -370,7 +370,7 @@ export class GitHubReleaseUpdater extends EventEmitter {
         throw new Error(`desktop update: GitHub Releases request failed with HTTP ${String(response.status)}`)
       }
       const payload: unknown = await response.json()
-      const allowPrereleases = prerelease(installedVersion) !== null && this.channel !== 'latest'
+      const allowPrereleases = prerelease(installedVersion) !== null && this.channel !== 'stable'
       const candidates = parseReleaseCandidates(payload, allowPrereleases)
       const bestRelease = candidates[0]
       if (bestRelease === undefined || lte(bestRelease.version, installedVersion)) {
@@ -510,6 +510,15 @@ export class GitHubReleaseUpdater extends EventEmitter {
     this.emit('error', new Error(`desktop update: unsupported installer platform ${this.platform}`))
   }
 
+  /**
+   * Discard any previously checked release selection or staged installer before a channel switch.
+   * @returns Resolves after the temporary download directory has been cleaned up.
+   */
+  async discard(): Promise<void> {
+    this.selectedRelease = undefined
+    await this.cleanupPreparedInstaller()
+  }
+
   private async cleanupPreparedInstaller(): Promise<void> {
     const previous = this.preparedInstaller
     this.preparedInstaller = undefined
@@ -553,7 +562,7 @@ export class GitHubReleaseUpdater extends EventEmitter {
         })
         refreshTimer()
         if (response.status >= 300 && response.status < 400) {
-          const location = response.headers?.get?.('location') ?? null
+          const location = response.headers.get('location')
           if (location !== null && location.trim() !== '') {
             if (redirectCount === MAX_HTTP_REDIRECTS) {
               throw new Error(`desktop update: exceeded maximum HTTP redirects (${String(MAX_HTTP_REDIRECTS)})`)
@@ -589,7 +598,7 @@ export class GitHubReleaseUpdater extends EventEmitter {
       if (!response.ok) {
         throw new Error(`desktop update: installer download failed with HTTP ${String(response.status)}`)
       }
-      const contentLengthHeader = response.headers?.get?.('content-length') ?? null
+      const contentLengthHeader = response.headers.get('content-length')
       const parsedLength = contentLengthHeader !== null ? Number(contentLengthHeader) : NaN
       const totalBytes = Number.isFinite(parsedLength) && parsedLength > 0
         ? parsedLength
@@ -601,7 +610,7 @@ export class GitHubReleaseUpdater extends EventEmitter {
 
       const fileHandle = await open(installerPath, 'wx', 0o700)
       try {
-        if (response.body !== null && response.body !== undefined && typeof response.body.getReader === 'function') {
+        if (response.body !== null && typeof response.body.getReader === 'function') {
           const reader = response.body.getReader()
           for (;;) {
             const { done, value } = await reader.read()

@@ -1,9 +1,13 @@
-vi.mock('../src/web-document.ts', () => ({ authenticateWebHost: async () => 'test-cookie', serveWebDocument: vi.fn(), forwardWebRequest: vi.fn() }))
+vi.mock('../src/web-document.ts', () => ({
+  authenticateWebHost: async () => 'test-cookie', serveWebDocument: vi.fn(), forwardWebRequest: vi.fn(), removeLegacyHostCookies: async () => {},
+}))
 /** Welcome startup uses the Host before transitioning to the workspace. */
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { BrowserWindowConstructorOptions } from 'electron'
-import type { DesktopLocale } from '../src/locale.ts'
+import { en, ru, zh, type DesktopLocale } from '../src/locale.ts'
 import type { AccountView } from '@deepseek-ai/dsh-deepseek-account/types'
 import type { WelcomeOperations } from '../src/welcome-api.ts'
 import { DESKTOP_IPC } from '../src/ipc.ts'
@@ -31,6 +35,7 @@ const state = vi.hoisted(() => ({
   closeWelcome: vi.fn(),
   welcomeLocale: undefined as DesktopLocale | undefined,
   preference: 'zh',
+  themePreference: 'system',
   hasApiKey: false,
   handlers: new Map<string, (...args: unknown[]) => unknown>(),
   listeners: new Map<string, (...args: unknown[]) => void>(),
@@ -38,7 +43,7 @@ const state = vi.hoisted(() => ({
   windowOptions: undefined as BrowserWindowConstructorOptions | undefined,
   menu: vi.fn(),
   operations: undefined as WelcomeOperations | undefined,
-  nativeTheme: { themeSource: 'system', shouldUseDarkColors: false },
+  nativeTheme: { themeSource: 'system', shouldUseDarkColors: false, on: vi.fn(), removeListener: vi.fn() },
 }))
 
 vi.mock('../src/crash-report.ts', async importOriginal => ({
@@ -80,13 +85,14 @@ vi.mock('electron', () => ({
     focus = state.focusWorkspace
     moveTop = state.moveTopWorkspace
     hide = vi.fn()
+    setBackgroundColor = vi.fn()
     show = state.showWorkspace
     showInactive = state.showInactiveWorkspace
     async loadURL(url: string) { state.contents = this.webContents; await state.loadWorkspace(url); this.ready?.() }
   },
-  net: { fetch: vi.fn() },
   nativeTheme: state.nativeTheme,
   session: { defaultSession: {
+    on: vi.fn(), cookies: {},
     setPermissionCheckHandler: vi.fn(), setPermissionRequestHandler: vi.fn(), webRequest: { onBeforeSendHeaders: vi.fn() },
   } },
   protocol: { registerSchemesAsPrivileged: vi.fn(), handle: vi.fn() },
@@ -111,24 +117,27 @@ vi.mock('../src/project-manager.ts', () => ({ DesktopProjectManager: class {
   applyRelease = vi.fn(async () => {})
   canRecoverProfile = vi.fn(() => true)
 } }))
-vi.mock('../src/host-process.ts', () => ({
+vi.mock('../src/host-process.ts', async importOriginal => ({
+  ...await importOriginal<typeof import('../src/host-process.ts')>(),
   DesktopHostProcess: class {
     start = state.startHost
     stop = state.stopHost
     fetch() {
       return Promise.resolve(Response.json({
         loggedIn: false, hasApiKey: state.hasApiKey, writable: true, localePreference: state.preference,
+        themePreference: state.themePreference,
       }))
     }
   },
 }))
 vi.mock('../src/welcome-backend.ts', () => ({
-  connectDesktopWelcome: async () => ({
+  connectDesktopWelcome: () => ({
     analyticsEnabled: async () => false,
     readLocalePreference: async () => state.preference,
     read: async () => {
       await state.beforeRead()
-      return { loggedIn: false, hasApiKey: state.hasApiKey, writable: true, localePreference: state.preference }
+      return { loggedIn: false, hasApiKey: state.hasApiKey, writable: true,
+        localePreference: state.preference, themePreference: state.themePreference }
     },
     save: async () => ({ ok: true }),
     account: {
@@ -149,11 +158,14 @@ vi.mock('../src/update-dialog.ts', () => ({ DesktopUpdateDialog: class {
   constructor(_preload: string, locale: () => DesktopLocale) { state.dialogLocale = locale }
   dispose() {}
 } }))
-vi.mock('../src/update-coordinator.ts', () => ({ DesktopUpdateCoordinator: class {
-  state = { phase: 'idle' }
-  check = vi.fn(async () => this.state)
-  dispose = vi.fn()
-} }))
+vi.mock('../src/update-coordinator.ts', () => ({
+  resolveDesktopUpdateSource: () => ({ updater: undefined, enabled: () => true, kind: 'electron-updater' as const }),
+  DesktopUpdateCoordinator: class {
+    state = { phase: 'idle' }
+    check = vi.fn(async () => this.state)
+    dispose = vi.fn()
+  },
+}))
 vi.mock('../src/welcome-window.ts', () => ({
   openWelcomeWindow: async (locale: DesktopLocale, operations: WelcomeOperations) => {
     state.welcomeLocale = locale
@@ -176,6 +188,7 @@ it.each([false, true])('starts welcome onboarding without carrying update focus 
   vi.resetModules()
   vi.clearAllMocks()
   state.preference = 'zh'
+  state.themePreference = updated ? 'dark' : 'light'
   state.hasApiKey = false
   state.operations = undefined
   state.accountState.mockResolvedValue({ status: 'signed-out', attempt: null, links: { usageUrl: '', topUpUrl: '' } })
@@ -194,7 +207,10 @@ it.each([false, true])('starts welcome onboarding without carrying update focus 
   const reading = Promise.withResolvers<undefined>()
   const loading = Promise.withResolvers<undefined>()
   state.beforeRead.mockReturnValueOnce(reading.promise)
-  state.beforeWelcome.mockReturnValueOnce(loading.promise)
+  state.beforeWelcome.mockImplementationOnce(async () => {
+    expect(state.nativeTheme.themeSource).toBe(state.themePreference)
+    await loading.promise
+  })
   const activate = () => {
     state.appListeners.get('second-instance')!()
     state.appListeners.get('open-url')!({ preventDefault: vi.fn() }, 'strata://open')
@@ -299,4 +315,26 @@ it.each([false, true])('starts welcome onboarding without carrying update focus 
   expect(state.showWorkspace).toHaveBeenCalledOnce()
   expect(state.focusWorkspace).toHaveBeenCalledOnce()
 
+})
+
+it('uses updated welcomeDescription copy and constrains 600x700 layout without breaking drag regions', () => {
+  expect(ru.welcomeDescription).toBe('Кроссплатформенная агентная среда со встроенной методологией разработки.')
+  expect(en.welcomeDescription).toBe('Cross-platform agent harness with a built-in engineering methodology.')
+  expect(zh.welcomeDescription).toBe('内置研发方法论的跨平台智能体运行环境。')
+
+  const css = readFileSync(join(import.meta.dirname, '../renderer/welcome.css'), 'utf8')
+  const welcomeRule = css.match(/\.welcome\s*\{([^}]+)\}/u)?.[1] ?? ''
+  const taglineRule = css.match(/\.tagline\s*\{([^}]+)\}/u)?.[1] ?? ''
+  const titlebarRule = css.match(/\.titlebar\s*\{([^}]+)\}/u)?.[1] ?? ''
+  const actionButtonRule = css.match(/\.actions button\s*\{([^}]+)\}/u)?.[1] ?? ''
+  const copyLinkRule = css.match(/\.auth-waiting \.copy-link\s*\{([^}]+)\}/u)?.[1] ?? ''
+
+  expect(welcomeRule).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)/u)
+  expect(taglineRule).toMatch(/white-space:\s*normal/u)
+  expect(taglineRule).not.toMatch(/white-space:\s*nowrap/u)
+  expect(taglineRule).toMatch(/text-wrap:\s*balance/u)
+  expect(taglineRule).toMatch(/overflow-wrap:\s*(?:break-word|anywhere)/u)
+  expect(titlebarRule).toMatch(/app-region:\s*drag/u)
+  expect(actionButtonRule).toMatch(/app-region:\s*no-drag/u)
+  expect(copyLinkRule).toMatch(/app-region:\s*no-drag/u)
 })

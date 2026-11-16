@@ -1,6 +1,6 @@
 StrataHarness
 StrataHarness
 欢迎使用 StrataHarness
-结构化多模型智能工作台
+内置研发方法论的跨平台智能体运行环境。
 配置模型提供商
 添加 API Key

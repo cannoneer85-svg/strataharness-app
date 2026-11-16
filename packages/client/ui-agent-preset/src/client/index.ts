@@ -12,9 +12,10 @@
  * edited where the roster is visible — the settings section's "make default"
  * — so General settings carries no duplicate control for the same field.
  *
- * Coding Tools (General settings) hide PTC and Minimal from the hero menu
- * and Settings roster when off. Hidden saved defaults fall back to Standard;
- * the existing gate clears staged choices while existing sessions keep their composition.
+ * Coding Tools (General settings) hide PTC, Minimal, and Creator (`cordis`) from
+ * the hero menu and Settings roster (including the Creator-draft entry) when off.
+ * Hidden saved defaults fall back to Standard; the existing gate clears staged
+ * choices while existing sessions keep their composition.
  */
 
 // Type-only: pulls the Session Controller service merge (ctx.sessions).
@@ -42,7 +43,7 @@ import { AgentPresetSection } from './AgentPresetSection.tsx'
 import type { AgentPresetSectionInjected } from './AgentPresetSection.tsx'
 import { AgentPresetSeatController, type AgentPresetStage } from './seat-store.ts'
 import { AgentPresetSectionController } from './section-store.ts'
-import { en, zh, type AgentPresetSettingsKey } from './locales.ts'
+import { en, ja, es, fr, de, ru, pt, zh, type AgentPresetSettingsKey } from './locales.ts'
 import { AGENT_PRESET_SETTINGS_NS, AgentPresetSettingsController } from './settings-store.ts'
 import { analyticsMode } from './analytics.ts'
 
@@ -128,7 +129,7 @@ export function apply(ctx: ClientContext): void {
     return binding === undefined ? undefined : seatFor(binding)
   }
 
-  ctx.effect(() => ctx.locale.register('settings.agentPreset', { zh, en }), 'ui-agent-preset: settings row dictionaries')
+  ctx.effect(() => ctx.locale.register('settings.agentPreset', { zh, en, ja, es, fr, de, ru, pt }), 'ui-agent-preset: settings row dictionaries')
 
   ctx.effect(() => {
     let requested = 0

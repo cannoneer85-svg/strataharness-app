@@ -1,9 +1,10 @@
 /** Resolve the update channel and GitHub release repository sealed into the installed application manifest. */
 
-import { assertIsolatedUpdaterRequestTarget } from './update-http-executor.ts'
+import type { DesktopUpdatePreferences } from './settings-file.ts'
+import { assertIsolatedUpdaterRequestTarget } from './updates/electron-updater/http-executor.ts'
 
 /** Installer-owned channel, independent of release version and upload environment. */
-export type DesktopUpdateChannel = 'nightly' | 'latest'
+export type DesktopUpdateChannel = DesktopUpdatePreferences['channel']
 
 /** Validated GitHub release repository coordinates. */
 export interface GitHubReleaseRepositoryTarget {
@@ -87,7 +88,7 @@ export function desktopUpdateChannel(manifest: unknown): DesktopUpdateChannel {
   if (typeof manifest !== 'object' || manifest === null) throw new Error('desktop update: invalid application manifest')
   if (!('dshDesktopUpdateChannel' in manifest)) return 'nightly'
   const channel = manifest.dshDesktopUpdateChannel
-  if (channel !== 'nightly' && channel !== 'latest') throw new Error('desktop update: invalid packaged channel')
+  if (channel !== 'nightly' && channel !== 'stable') throw new Error('desktop update: invalid packaged channel')
   return channel
 }
 

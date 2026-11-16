@@ -1,8 +1,15 @@
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
+import AgentPresetRegistry from '@deepseek-ai/dsh-agent-preset-registry'
+import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
+import { bundlePatchPaths, composeEntries } from '@deepseek-ai/dsh-app-boot/src/profile.ts'
+import { Config as SkillOfficeConfig } from '@deepseek-ai/dsh-skill-office'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
+import { Config as ToolOfficeConfig } from '@deepseek-ai/dsh-tool-office'
+import { Config as ToolSubagentConfig } from '@deepseek-ai/dsh-tool-subagent'
+import { Config as ToolSubagentControlConfig } from '@deepseek-ai/dsh-tool-subagent-control'
 import { afterEach, describe, expect, it } from 'vitest'
 import StrataPaths, { resolveDesignerSkillsDir, resolveStrataHarnessRoot } from '../src/index.ts'
 
@@ -192,5 +199,220 @@ describe('StrataPaths (@strata/product-bundle)', () => {
     } finally {
       await ctx.fiber.dispose()
     }
+  })
+})
+
+interface RawPluginEntry {
+  id?: string
+  name?: string
+  disabled?: unknown
+  config?: unknown
+}
+
+function collectNestedPlugins(entries: readonly RawPluginEntry[]): RawPluginEntry[] {
+  const collected: RawPluginEntry[] = []
+  for (const entry of entries) {
+    collected.push(entry)
+    if (Array.isArray(entry.config)) {
+      collected.push(...collectNestedPlugins(entry.config as RawPluginEntry[]))
+    }
+  }
+  return collected
+}
+
+function loadComposedProductEntries() {
+  const repoRoot = resolve(import.meta.dirname, '..', '..', '..', '..')
+  const bundleDirs = [
+    join(repoRoot, 'packages', 'bundle', 'base'),
+    join(repoRoot, 'packages', 'bundle', 'web-app'),
+    join(repoRoot, 'packages', 'strata', 'product-bundle'),
+  ]
+  const warnings: string[] = []
+  const layers = bundleDirs.map((dir) => {
+    const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as {
+      dsh?: { bundle?: { patch: string | string[] } }
+    }
+    return bundlePatchPaths(dir, manifest.dsh!.bundle!).flatMap(file => loadOverlayPatches('strata-test', file))
+  })
+  const entries = composeEntries(layers, message => warnings.push(message))
+  return { repoRoot, warnings, entries }
+}
+
+describe('Strata preset lineup & overrides (@strata/product-bundle)', () => {
+  it('removes legacy strata.patch.yml, sets strata-developer default + strata alias, and composes 6 active presets in order 1..6', async () => {
+    const { repoRoot, warnings, entries } = loadComposedProductEntries()
+    expect(warnings).toEqual([])
+
+    const bundleRoot = join(repoRoot, 'packages', 'strata', 'product-bundle')
+    expect(existsSync(join(bundleRoot, 'presets', 'strata.patch.yml'))).toBe(false)
+    const bundleManifest = JSON.parse(readFileSync(join(bundleRoot, 'package.json'), 'utf8')) as {
+      files: string[]
+      dsh: { bundle: { patch: string[] } }
+    }
+    expect(bundleManifest.files).not.toContain('presets/strata.patch.yml')
+    expect(bundleManifest.dsh.bundle.patch).not.toContain('./presets/strata.patch.yml')
+
+    const registryEntry = entries.find(entry => entry.id === 'agent-preset-registry')
+    expect(registryEntry?.config).toEqual({
+      default: 'strata-developer',
+      aliases: { strata: 'strata-developer' },
+    })
+
+    const minimalEntry = entries.find(entry => entry.id === 'preset-minimal')
+    expect(minimalEntry?.disabled).toBe(true)
+
+    const activePresetEntries = entries.filter(
+      entry => entry.name === '@deepseek-ai/dsh-agent-preset' && entry.disabled !== true,
+    )
+    const presetDefs = activePresetEntries.map(entry => entry.config as {
+      id: string
+      order: number
+      plugins: RawPluginEntry[]
+    })
+
+    const ctx = new Context()
+    ctx.provide('loader', {
+      readYaml: async () => '',
+      entries: [],
+      replace: () => {},
+    } as never)
+    ctx.provide('sessionProjections', {
+      register: async () => () => {},
+    } as never)
+    ctx.provide('agents', {
+      scoped: () => new Set(),
+      forSession: () => [],
+    } as never)
+
+    try {
+      await ctx.plugin(AgentPresetRegistry, registryEntry?.config as Record<string, unknown>).await()
+      for (const def of presetDefs) {
+        await ctx.agentPresets.register(def as never)
+      }
+
+      const listed = await ctx.agentPresets.list()
+      expect(listed.map(item => item.id)).toEqual([
+        'strata-developer',
+        'standard',
+        'strata-analyst',
+        'strata-designer',
+        'ptc',
+        'cordis',
+      ])
+      expect(listed.map(item => item.order)).toEqual([1, 2, 3, 4, 5, 6])
+      expect(ctx.agentPresets.defaultId).toBe('strata-developer')
+
+      const resolvedAlias = await ctx.agentPresets.resolve('strata')
+      expect(resolvedAlias.id).toBe('strata-developer')
+      const docAlias = await ctx.agentPresets.readDocument('strata')
+      expect(docAlias.agentPreset).toBe('strata-developer')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('unifies tool-result-pruner at 32768 chars and aligns prompts across standard and strata-developer', () => {
+    const { repoRoot, entries } = loadComposedProductEntries()
+    const presets = new Map(
+      entries
+        .filter(entry => entry.name === '@deepseek-ai/dsh-agent-preset' && entry.disabled !== true)
+        .map((entry) => {
+          const cfg = entry.config as { id: string; order: number; plugins: RawPluginEntry[] }
+          return [cfg.id, cfg] as const
+        }),
+    )
+
+    expect([...presets.keys()]).toEqual([
+      'standard',
+      'ptc',
+      'cordis',
+      'strata-developer',
+      'strata-analyst',
+      'strata-designer',
+    ].filter(id => presets.has(id)))
+
+    for (const id of ['strata-developer', 'standard', 'strata-analyst', 'strata-designer', 'ptc', 'cordis']) {
+      const preset = presets.get(id)
+      expect(preset, `missing active preset ${id}`).toBeDefined()
+      const nested = collectNestedPlugins(preset!.plugins)
+      const pruner = nested.find(row => row.id === 'tool-result-pruner')
+      expect(pruner?.config, `${id} pruner mismatch`).toEqual({
+        thresholdChars: 32768,
+        headChars: 16384,
+        tailChars: 4096,
+      })
+    }
+
+    const standardNested = collectNestedPlugins(presets.get('standard')!.plugins)
+    const standardPrefix = (standardNested.find(row => row.id === 'persona')?.config as { prefix?: string } | undefined)?.prefix ?? ''
+    expect(standardPrefix).toContain('AGENTS.md')
+    expect(standardPrefix).toMatch(/coding standards/i)
+    expect(standardPrefix).toMatch(/Skip StrataHarness Step 0/i)
+
+    const devNested = collectNestedPlugins(presets.get('strata-developer')!.plugins)
+    const devPrefix = (devNested.find(row => row.id === 'persona')?.config as { prefix?: string } | undefined)?.prefix ?? ''
+    expect(devPrefix).toContain('AGENTS.md')
+    expect(devPrefix).toContain('.agents/CONTEXT.md')
+    expect(devPrefix).toContain('init-project/SKILL.md')
+    expect(devPrefix).toContain('pwsh')
+
+    const skillDirs = readdirSync(join(repoRoot, 'resources', 'strataharness', '.agents', 'skills'), {
+      withFileTypes: true,
+    }).filter(entry => entry.isDirectory())
+    expect(skillDirs).toHaveLength(41)
+  })
+
+  it('aligns Office host/preset separation and 0.2.2-rc.3 delegation schemas across all Strata presets', () => {
+    const { entries } = loadComposedProductEntries()
+
+    const hostSkillOffice = entries.find(entry => entry.id === 'skill-office')
+    expect(hostSkillOffice?.name).toBe('@deepseek-ai/dsh-skill-office')
+    expect(SkillOfficeConfig({ pythonEnvironment: 'user' })).toEqual({ pythonEnvironment: 'user' })
+    expect(SkillOfficeConfig({ pythonEnvironment: 'workspace-dependencies' })).toEqual({
+      pythonEnvironment: 'workspace-dependencies',
+    })
+
+    const toolOfficeDefaults = ToolOfficeConfig({})
+    expect(toolOfficeDefaults.activationSkills).toEqual(['office', 'office-docx', 'office-xlsx', 'office-pptx'])
+
+    const activePresets = entries
+      .filter(entry => entry.name === '@deepseek-ai/dsh-agent-preset' && entry.disabled !== true)
+      .map(entry => entry.config as { id: string; plugins: RawPluginEntry[] })
+
+    for (const preset of activePresets) {
+      const nested = collectNestedPlugins(preset.plugins)
+      expect(nested.some(row => row.name === '@deepseek-ai/dsh-skill-office')).toBe(false)
+      expect(nested.some(row => row.name === '@deepseek-ai/dsh-tool-subagent-control/list-agents')).toBe(false)
+
+      if (preset.id === 'strata-developer' || preset.id === 'strata-analyst' || preset.id === 'standard' || preset.id === 'ptc') {
+        expect(nested.some(row => row.name === '@deepseek-ai/dsh-tool-office')).toBe(true)
+      }
+
+      const subagentCtrl = nested.find(row => row.name === '@deepseek-ai/dsh-tool-subagent-control')
+      if (subagentCtrl !== undefined) {
+        const parsedCtrl = ToolSubagentControlConfig(subagentCtrl.config ?? {})
+        expect(parsedCtrl.interrupt).toBe(false)
+      }
+
+      for (const spawnRow of nested.filter(row => row.name === '@deepseek-ai/dsh-tool-subagent')) {
+        expect(spawnRow.config).not.toHaveProperty('modelSelectionSettings')
+        const parsedSpawn = ToolSubagentConfig(spawnRow.config as Parameters<typeof ToolSubagentConfig>[0])
+        if (spawnRow.id === 'tool-subagent') {
+          expect(parsedSpawn.modelSelection).toBe(true)
+          expect(parsedSpawn.modelDiscovery).toBe(true)
+        } else {
+          expect(parsedSpawn.modelSelection).toBe(false)
+          expect(parsedSpawn.modelDiscovery).toBe(false)
+        }
+      }
+    }
+
+    const analystNested = collectNestedPlugins(activePresets.find(preset => preset.id === 'strata-analyst')!.plugins)
+    const analystPrefix = (analystNested.find(row => row.id === 'persona')?.config as { prefix?: string } | undefined)?.prefix ?? ''
+    for (const skillName of toolOfficeDefaults.activationSkills) {
+      expect(analystPrefix).toContain(skillName)
+    }
+    expect(analystPrefix).not.toContain('office-pdf')
+    expect(analystPrefix).not.toContain('office-export-pdf')
   })
 })

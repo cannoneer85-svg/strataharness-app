@@ -45,7 +45,7 @@ describe('Markdown source discovery', () => {
       ])
   })
 
-  it('checks .agents docs, package instructions, and nested docs while excluding frozen notes, operational artifacts, and scaffold templates', () => {
+  it('checks .agents docs, package instructions, nested docs, and detail documents while excluding frozen notes, operational artifacts, and scaffold templates', () => {
     const root = layout({
       '.agents/SKILLS.md': '[missing](missing.md)\n',
       'docs/agents/domain.md': '[missing](missing.md)\n',
@@ -55,6 +55,7 @@ describe('Markdown source discovery', () => {
       'packages/core/probe/README.md': '[missing](missing.md)\n',
       '.agents/skills/init-project/SKILL.md': '[missing](missing.md)\n',
       '.agents/skills/init-project/templates/README.md': '[dest-relative](AGENTS.md)\n',
+      'packages/core/probe/docs/DETAIL.md': '![missing](missing.png)\n',
       '.agents/notes/archived/process/frozen.md': '[historical](missing.md)\n',
     })
     const sources = markdownLinkSourcePaths(root)
@@ -66,6 +67,7 @@ describe('Markdown source discovery', () => {
       join('packages', 'AGENTS.md'),
       join('packages', 'core', 'README.md'),
       join('packages', 'core', 'probe', 'README.md'),
+      join('packages', 'core', 'probe', 'docs', 'DETAIL.md'),
     ])
   })
 })

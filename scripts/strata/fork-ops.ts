@@ -771,7 +771,10 @@ export function auditForkOverrides(repoRoot: string = DEFAULT_REPO_ROOT): AuditO
       }
     }
 
-    for (const wiringRelPath of ['packages/boot/app-boot/src/profile.ts', 'apps/desktop/src/project-manager.ts']) {
+    const webProfileWiringPath = isFile(join(repoRoot, 'packages/util/official-bundles/src/bundles.ts'))
+      ? 'packages/util/official-bundles/src/bundles.ts'
+      : 'packages/boot/app-boot/src/profile.ts'
+    for (const wiringRelPath of [webProfileWiringPath, 'apps/desktop/src/project-manager.ts']) {
       const fullPath = join(repoRoot, wiringRelPath)
       if (!isFile(fullPath)) {
         bundleFailures.push(`${wiringRelPath} is missing`)

@@ -191,11 +191,11 @@ describe('StrataHarness releaseRepository validation and electron-builder extraM
       productName: 'StrataHarness',
       releaseRepository: 'https://github.com/cannoneer85-svg/strataharness-app.git',
     })
-    expect(resolveStrataReleaseRepository!({}, REPOSITORY_ROOT)).toBe(
+    expect(resolveStrataReleaseRepository({}, REPOSITORY_ROOT)).toBe(
       'https://github.com/cannoneer85-svg/strataharness-app.git',
     )
     expect(
-      resolveStrataReleaseRepository!(
+      resolveStrataReleaseRepository(
         { STRATA_RELEASE_REPOSITORY: ' https://github.com/cannoneer85-svg/strataharness-app ' },
         REPOSITORY_ROOT,
       ),
@@ -214,7 +214,7 @@ describe('StrataHarness releaseRepository validation and electron-builder extraM
       'https://github.com/deepseek-ai/deepseek-harness.git',
       'https://github.com/deepseek-ai/deepseek-harness',
     ]) {
-      expect(() => validateStrataReleaseRepository!(invalid), `invalid=${String(invalid)}`).toThrow(/releaseRepository/u)
+      expect(() => validateStrataReleaseRepository(invalid), `invalid=${String(invalid)}`).toThrow(/releaseRepository/u)
       const root = mkdtempSync(join(tmpdir(), 'strata-release-repo-invalid-'))
       tempDirectories.push(root)
       writeFileSync(

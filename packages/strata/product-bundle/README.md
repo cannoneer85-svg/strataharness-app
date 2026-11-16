@@ -1,5 +1,5 @@
 ---
-description: "Compose the StrataHarness product layer over dsh-base and dsh-web-app: disable upstream telemetry and cloud account services, resolve bundled StrataHarness skills, and register the four Strata presets."
+description: "Compose the StrataHarness product layer over dsh-base and dsh-web-app: disable upstream telemetry and cloud account services, resolve bundled StrataHarness skills, and configure the Strata and upstream agent preset lineup."
 kind: "package-bundle"
 ---
 
@@ -7,7 +7,7 @@ kind: "package-bundle"
 
 ## Summary
 
-`@strata/product-bundle` layers the StrataHarness product configuration over `@deepseek-ai/dsh-base` and `@deepseek-ai/dsh-web-app` without modifying upstream core packages. It disables DeepSeek cloud account authentication and outbound telemetry, retains direct API-key (`llm-deepseek`) and multi-provider (`llm-pi-ai`) model adapters, provides validated paths to the bundled `resources/strataharness` methodology through `ctx.strataPaths`, and registers four presets: `StrataHarness` (default), `Strata Developer`, `Strata Analyst`, and `Strata Designer`.
+`@strata/product-bundle` layers the StrataHarness product configuration over `@deepseek-ai/dsh-base` and `@deepseek-ai/dsh-web-app` without modifying upstream core packages. It disables DeepSeek cloud account authentication and outbound telemetry, retains direct API-key (`llm-deepseek`) and multi-provider (`llm-pi-ai`) model adapters, provides validated paths to the bundled `resources/strataharness` methodology through `ctx.strataPaths`, and configures the 6 active presets (`Strata Developer` default with legacy `strata -> strata-developer` alias, `Standard mode`, `Strata Analyst`, `Strata Designer`, plus Coding Tools modes `PTC mode` and `Creator mode`) while keeping `Minimal mode` disabled.
 
 ## Table of Contents
 
@@ -28,7 +28,7 @@ The Web and Desktop profile template stacks `@strata/product-bundle` after `@dee
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-[`cordis.patch.yml`](cordis.patch.yml) disables upstream telemetry, cloud-account login, `ui-brand-official`, and the four upstream presets, sets `agent-preset-registry` default to `strata`, disables `includeHarnessIdentity` on `system-prompt`, and mounts `strata-paths` alongside `@strata/ui-brand`. The four files under `presets/` compose `strata`, `strata-developer`, `strata-analyst`, and `strata-designer` with `thresholdChars: 32768` on `tool-result-pruner` so full `SKILL.md` bodies remain unpruned.
+[`cordis.patch.yml`](cordis.patch.yml) disables upstream telemetry, cloud-account login, `ui-brand-official`, and `preset-minimal`, sets `agent-preset-registry` default to `strata-developer` with alias `strata: strata-developer`, disables `includeHarnessIdentity` on `system-prompt`, and mounts `strata-paths` alongside `@strata/ui-brand` and `@strata/locale-ru`. The six files under `presets/` declare `strata-developer`, `strata-analyst`, and `strata-designer` alongside declarative overrides for upstream `standard`, `ptc`, and `cordis`, each configured with `thresholdChars: 32768` on `tool-result-pruner` so full `SKILL.md` bodies remain unpruned.
 
 -----
 

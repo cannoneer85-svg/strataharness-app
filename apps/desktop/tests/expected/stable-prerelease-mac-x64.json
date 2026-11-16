@@ -1,0 +1,42 @@
+[
+  {
+    "environment": "test",
+    "version": "1.2.3-alpha.1",
+    "keys": [
+      "strataharness/0123456789abcdef0123456789abcdef/bin/mac-x64/stable/strataharness-1.2.3-alpha.1-mac-x64.dmg",
+      "strataharness/0123456789abcdef0123456789abcdef/bin/mac-x64/stable/strataharness-1.2.3-alpha.1-mac-x64.zip",
+      "strataharness/0123456789abcdef0123456789abcdef/bin/mac-x64/stable/strataharness-1.2.3-alpha.1-mac-x64.zip.blockmap",
+      "strataharness/0123456789abcdef0123456789abcdef/feeds/mac-x64/stable-mac.yml"
+    ]
+  },
+  {
+    "environment": "test",
+    "version": "1.2.3-rc.1",
+    "keys": [
+      "strataharness/0123456789abcdef0123456789abcdef/bin/mac-x64/stable/strataharness-1.2.3-rc.1-mac-x64.dmg",
+      "strataharness/0123456789abcdef0123456789abcdef/bin/mac-x64/stable/strataharness-1.2.3-rc.1-mac-x64.zip",
+      "strataharness/0123456789abcdef0123456789abcdef/bin/mac-x64/stable/strataharness-1.2.3-rc.1-mac-x64.zip.blockmap",
+      "strataharness/0123456789abcdef0123456789abcdef/feeds/mac-x64/stable-mac.yml"
+    ]
+  },
+  {
+    "environment": "production",
+    "version": "1.2.3-alpha.1",
+    "keys": [
+      "strataharness/bin/mac-x64/stable/strataharness-1.2.3-alpha.1-mac-x64.dmg",
+      "strataharness/bin/mac-x64/stable/strataharness-1.2.3-alpha.1-mac-x64.zip",
+      "strataharness/bin/mac-x64/stable/strataharness-1.2.3-alpha.1-mac-x64.zip.blockmap",
+      "strataharness/feeds/mac-x64/stable-mac.yml"
+    ]
+  },
+  {
+    "environment": "production",
+    "version": "1.2.3-rc.1",
+    "keys": [
+      "strataharness/bin/mac-x64/stable/strataharness-1.2.3-rc.1-mac-x64.dmg",
+      "strataharness/bin/mac-x64/stable/strataharness-1.2.3-rc.1-mac-x64.zip",
+      "strataharness/bin/mac-x64/stable/strataharness-1.2.3-rc.1-mac-x64.zip.blockmap",
+      "strataharness/feeds/mac-x64/stable-mac.yml"
+    ]
+  }
+]

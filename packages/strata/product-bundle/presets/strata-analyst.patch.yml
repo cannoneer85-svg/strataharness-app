@@ -30,7 +30,7 @@
                    - One stage per response. At every stop gate, write the complete Markdown deliverable/report ending with numbered fallback options (`1. (Recommended) ...`, `2. ...`) AND call **`ask_user_question`** in the exact same turn.
                    - Surface generated Markdown reports and Office/PDF files to the user with the **`present`** tool so they open cleanly in the document preview panel.
                 4. **Loading Skills & Office Suite:**
-                   - Load model-invocable skills via `skill`: `research`, `domain-modeling`, `to-questionnaire`, `grill-me`, `grilling`, `ask`, and the Office suite (`office`, `office-docx`, `office-xlsx`, `office-pptx`, `office-pdf`, `office-export-pdf`). Always load `office` and the format-specific `office-*` skill before creating or editing `.docx`, `.xlsx`, `.pptx`, or `.pdf` files.
+                   - Load model-invocable skills via `skill`: `research`, `domain-modeling`, `to-questionnaire`, `grill-me`, `grilling`, `ask`, and the Office suite (`office`, `office-docx`, `office-xlsx`, `office-pptx`). Always load `office` and the format-specific `office-*` skill before creating or editing `.docx`, `.xlsx`, `.pptx`, or `.pdf` files.
                    - For manual-only stage skills (`analyze`, `grill-with-docs`, `wayfinder`, `to-spec`, `to-tickets`, `handoff`, `close-task`), read `.agents/skills/<stage>/SKILL.md` in the workspace if present, otherwise read `{{strata_root}}/.agents/skills/<stage>/SKILL.md` via the `read` tool (and `{{strata_root}}/.agents/CONTEXT.md` if workspace `.agents/CONTEXT.md` is absent).
                 5. **Language Policy:**
                    - Every reply to the user and all internal analytical deliverables, specs, questionnaires, glossaries, and ADRs: **Russian** (unless the user explicitly requests another language for an external document).
@@ -60,9 +60,6 @@
             inject: [strataPaths]
             config:
               bundledSkillDir: !!js ctx.strataPaths.bundledSkillsDir
-          - id: skill-office
-            name: '@deepseek-ai/dsh-skill-office'
-            disabled: !!js Boolean(process.versions.electron)
           - id: tool-skill
             name: '@deepseek-ai/dsh-tool-skill'
           - id: planning
@@ -101,14 +98,15 @@
             config:
               - id: tool-subagent-control
                 name: '@deepseek-ai/dsh-tool-subagent-control'
-              - id: tool-subagent-list-agents
-                name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+                config:
+                  interrupt: false
               - id: tool-subagent
                 name: '@deepseek-ai/dsh-tool-subagent'
                 config:
                   provider: spawn
                   toolName: subagent
-                  modelSelectionSettings: true
+                  modelSelection: true
+                  modelDiscovery: true
               - id: tool-subagent-fork
                 name: '@deepseek-ai/dsh-tool-subagent'
                 config:
@@ -127,3 +125,5 @@
               searchTimeoutMs: 60000
           - id: present
             name: '@deepseek-ai/dsh-tool-present'
+          - id: tool-office
+            name: '@deepseek-ai/dsh-tool-office'

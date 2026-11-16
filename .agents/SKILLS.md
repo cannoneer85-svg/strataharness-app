@@ -62,14 +62,17 @@
 | [dsh-client-ui-ux](skills/dsh-client-ui-ux/SKILL.md) | Дизайн и ревью изменений клиентского GUI в `packages/client` (токены, фидбек, меню, локализация) | авто | dsh | active |
 | [dsh-code-review](skills/dsh-code-review/SKILL.md) | Стандарты ревью кода репозитория: конвенции `AGENTS.md`, defensive patterns, ADR и гейты | авто | dsh | active |
 | [dsh-create-upgrade-guide](skills/dsh-create-upgrade-guide/SKILL.md) | Написание и обновление `docs/upgrade-guide/` при внешне заметных ломающих изменениях | авто | dsh | active |
-| [dsh-doc](skills/dsh-doc/SKILL.md) | Создание, структура, метаданные и двуязычное выравнивание документации и README пакетов | авто | dsh | active |
+| [dsh-cua-macos-signing](skills/dsh-cua-macos-signing/SKILL.md) | Подбор, создание и настройка фиксированного ключа подписи macOS при разработке CUA из исходников | авто | dsh | active |
+| [dsh-doc-writing](skills/dsh-doc-writing/SKILL.md) | Создание, реструктуризация, аудит и двуязычное выравнивание документации, README пакетов и сайта | авто | dsh | active |
 | [dsh-error-handling](skills/dsh-error-handling/SKILL.md) | Типизированные ошибки, владение обработкой, границы сбоев и понятные пользователю отчёты | авто | dsh | active |
 | [dsh-find-simplifications](skills/dsh-find-simplifications/SKILL.md) | Поиск доказанных упрощений в коде, API, конфигурации и тестах без потери поведения | авто | dsh | active |
 | [dsh-merging-stacked-prs](skills/dsh-merging-stacked-prs/SKILL.md) | Работа со стеками зависимых PR через нативный механизм stacked PRs в GitHub | авто | dsh | active |
 | [dsh-official-plugin-artwork](skills/dsh-official-plugin-artwork/SKILL.md) | Отрисовка и ревью иконок официальных и экспериментальных плагинов | авто | dsh | active |
+| [dsh-pr-description](skills/dsh-pr-description/SKILL.md) | Оформление и обновление описаний PR DeepSeek Harness (секции, тестирование и AI Usage) | авто | dsh | active |
 | [dsh-pre-push-checks](skills/dsh-pre-push-checks/SKILL.md) | Выбор минимального достаточного набора локальных тестов и гейтов под конкретный diff | авто | dsh | active |
 | [dsh-prose-standard](skills/dsh-prose-standard/SKILL.md) | Редакционный стандарт текста для Markdown, JSDoc, комментариев, промптов и диагностик | авто | dsh | active |
 | [dsh-responsive-ui](skills/dsh-responsive-ui/SKILL.md) | Адаптивная вёрстка клиентского UI, обрезка текста, иконки, тултипы и фокус с клавиатуры | авто | dsh | active |
+| [dsh-session-projection](skills/dsh-session-projection/SKILL.md) | Проектирование, расширение и ревью проекций состояния сессии (`session-projection`) и миграций восстановления | авто | dsh | active |
 | [dsh-speed-up-perf](skills/dsh-speed-up-perf/SKILL.md) | Профилирование, синтетические бенчмарки и оптимизация производительности без смены поведения | авто | dsh | active |
 | [dsh-translate-docs](skills/dsh-translate-docs/SKILL.md) | Двуязычный перевод и синхронизация пар документации строго по явному вызову пользователя | ручной | dsh | active |
 | [dsh-trim-cot-leakage](skills/dsh-trim-cot-leakage/SKILL.md) | Очистка комментариев, JSDoc и доков от утечек цепочки рассуждений и истории правок | авто | dsh | active |

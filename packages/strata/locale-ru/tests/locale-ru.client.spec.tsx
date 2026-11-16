@@ -14,7 +14,7 @@ import {
   type LocaleRuntime,
 } from '@deepseek-ai/dsh-client-locale/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import { TestRemote, allowAllAccess, bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
+import { TestRemote, allowAllAccess, bindSnapshotSelector, contextMenuHook } from '@deepseek-ai/dsh-client-test-runtime'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { apply as settingsApply, inject as settingsInject } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
@@ -147,6 +147,7 @@ function mountRegisteredLanguageRow(slots: SlotRegistry, locale: LocaleRuntime) 
       useResource={useResource}
       useWorkspaces={emptyWorkspaces()}
       {...allowAllAccess}
+      useContextMenu={contextMenuHook()}
       useStore={bindSnapshotSelector(instance)}
       actions={instance.actions}
       t={t}
@@ -165,12 +166,16 @@ describe('StrataHarness Russian language pack (@strata/locale-ru)', () => {
     expect(hostApply).not.toThrow()
     expect(inject).toEqual(['locale'])
 
+    const productManifestPath = resolve(import.meta.dirname, '..', '..', '..', '..', 'strata-product.json')
+    const productManifest = JSON.parse(readFileSync(productManifestPath, 'utf8')) as {
+      productVersion: string
+    }
     const manifestPath = resolve(import.meta.dirname, '..', 'package.json')
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
       version: string
       dsh: { client: { immediately?: boolean; inject?: string[]; platform?: string } }
     }
-    expect(manifest.version).toBe('1.0.0')
+    expect(manifest.version).toBe(productManifest.productVersion)
     expect(manifest.dsh.client).toEqual({
       inject: ['@deepseek-ai/dsh-client-locale'],
       platform: 'web',
@@ -201,6 +206,11 @@ describe('StrataHarness Russian language pack (@strata/locale-ru)', () => {
         'Русский',
         'English',
         '中文',
+        '日本語',
+        'Español',
+        'Français',
+        'Deutsch',
+        'Português',
       ])
 
       // Complete Russian coverage for `common` and `settings.locale`.
@@ -217,7 +227,16 @@ describe('StrataHarness Russian language pack (@strata/locale-ru)', () => {
         const trigger = screen.getByRole('button', { name: /Русский/ })
         fireEvent.click(trigger)
         const items = screen.getAllByRole('menuitem')
-        expect(items.map(item => item.textContent)).toEqual(['Русский', 'English', '中文'])
+        expect(items.map(item => item.textContent)).toEqual([
+          'Русский',
+          'English',
+          '中文',
+          '日本語',
+          'Español',
+          'Français',
+          'Deutsch',
+          'Português',
+        ])
 
         // Switch to English through LanguageRow.
         fireEvent.click(screen.getByRole('menuitem', { name: 'English' }))
@@ -242,13 +261,17 @@ describe('StrataHarness Russian language pack (@strata/locale-ru)', () => {
         expect(boot.onChange).toHaveBeenLastCalledWith('ru')
         await vi.waitFor(() => { expect(boot.getStoredPreference()).toBe('ru') })
 
-        // Unloading @strata/locale-ru degrades display to 'en' without raw keys and without mutating stored 'ru'.
+        // Unloading @strata/locale-ru peels back the Strata overlay onto the built-in 'ru' fallback without mutating stored 'ru'.
+        expect(boot.locale.bind(COMMON_NS)('markdown.truncatedCharacters', { total: 5 }))
+          .toBe('… обрезано (всего 5 символов)')
         const mutateCallsBeforeUnload = boot.mutate.mock.calls.length
         await boot.ruFiber.dispose()
-        expect(boot.locale.getLocale().active).toBe('en')
-        expect(document.documentElement.lang).toBe('en')
-        expect(boot.locale.bind(SETTINGS_NS)('language.title')).toBe('Language')
-        expect(screen.getByText('Language')).toBeDefined()
+        expect(boot.locale.getLocale().active).toBe('ru')
+        expect(document.documentElement.lang).toBe('ru')
+        expect(boot.locale.bind(SETTINGS_NS)('language.title')).toBe('Язык')
+        expect(boot.locale.bind(COMMON_NS)('markdown.truncatedCharacters', { total: 5 }))
+          .toBe('… обрезано до 5 символов')
+        expect(screen.getByText('Язык')).toBeDefined()
         expect(boot.getStoredPreference()).toBe('ru')
         expect(boot.mutate).toHaveBeenCalledTimes(mutateCallsBeforeUnload)
       } finally {

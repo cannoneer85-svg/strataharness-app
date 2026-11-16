@@ -1,8 +1,9 @@
+import { SHIPPED_LOCALE_IDS } from '../../../../scripts/shipped-locales.ts'
 /** locale apply wiring: service + dictionaries provision, declaration-aware
  * Language row registration, snapshot projection into the row store, and
  * recovery after an HMR collapse of the declaring entry. */
 import { Context } from '@deepseek-ai/cordis'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { apply as settingsApply, inject as settingsInject } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
@@ -155,7 +156,7 @@ describe('locale apply', () => {
     const { entry, instance, face } = faceOf(b.slots)
     // The inject-time re-sync sealed the init window: the mirror is current.
     expect(instance.getSnapshot().active).toBe('en')
-    expect(instance.getSnapshot().options.map(o => o.id)).toEqual(['zh', 'en'])
+    expect(instance.getSnapshot().options.map(o => o.id).sort()).toEqual([...SHIPPED_LOCALE_IDS].sort())
     // Copy rides the standard locale seat: the entry declares the namespace.
     expect(entry.locale).toBe(SETTINGS_NS)
     expect(locale.bind(SETTINGS_NS)('language.title')).toBe('Language')
@@ -176,7 +177,7 @@ describe('locale apply', () => {
     const languagePack = b.ctx.plugin({
       inject: ['locale'],
       apply: packCtx => packCtx.effect(
-        () => packCtx.locale.addLanguage({ id: 'ja', label: '日本語', fallback: 'en' }),
+        () => packCtx.locale.addLanguage({ id: 'it', label: 'Italiano', fallback: 'en' }),
         'test language pack registration',
       ),
     })
@@ -185,10 +186,47 @@ describe('locale apply', () => {
       { id: 'zh', label: '中文' },
       { id: 'en', label: 'English' },
       { id: 'ja', label: '日本語' },
+      { id: 'es', label: 'Español' },
+      { id: 'fr', label: 'Français' },
+      { id: 'de', label: 'Deutsch' },
+      { id: 'ru', label: 'Русский' },
+      { id: 'pt', label: 'Português' },
+      { id: 'it', label: 'Italiano' },
     ])
 
     await languagePack.dispose()
-    expect(instance.getSnapshot().options.map(option => option.id)).toEqual(['zh', 'en'])
+    expect(instance.getSnapshot().options.map(option => option.id)).toEqual(['zh', 'en', 'ja', 'es', 'fr', 'de', 'ru', 'pt'])
+  })
+
+  it.each([
+    ['ja', '日本語', '言語', 'キャンセル'],
+    ['es', 'Español', 'Idioma', 'Cancelar'],
+    ['fr', 'Français', 'Langue', 'Annuler'],
+    ['de', 'Deutsch', 'Sprache', 'Abbrechen'],
+    ['ru', 'Русский', 'Язык', 'Отмена'],
+    ['pt', 'Português', 'Idioma', 'Cancelar'],
+  ])('restores %s from the Host and releases its language and dictionaries on unload', async (id, label, languageTitle, cancel) => {
+    const b = await bench(id)
+    onTestFinished(() => b.ctx.fiber.dispose())
+    declareItems(b.slots)
+    const fiber = b.ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    const locale = b.ctx.get('locale') as LocaleRuntime
+    const { instance, face } = faceOf(b.slots)
+    expect(instance.getSnapshot().active).toBe(id)
+    expect(locale.bind(SETTINGS_NS)('language.title')).toBe(languageTitle)
+    expect(locale.bind('common')('cancel')).toBe(cancel)
+    face.setLocale('en')
+    face.setLocale(id)
+    await vi.waitFor(() => { expect(b.mutate).toHaveBeenCalledTimes(2) })
+    expect(b.mutate.mock.calls.at(-1)?.[1]).toEqual([{ op: 'set', path: ['preference'], value: id }])
+    await fiber.dispose()
+    expect(locale.getSnapshot().locales.map(option => option.id)).toEqual(['zh', 'en'])
+    expect(() => { locale.setLocale(id) }).toThrow('not registered')
+    const remove = locale.addLanguage({ id, label, fallback: 'en' })
+    locale.setLocale(id)
+    expect(locale.bind('common')('cancel')).toBe('cancel')
+    remove()
   })
 
   it('loads and refreshes the explicit Host preference after nonblocking activation', async () => {
@@ -257,18 +295,10 @@ describe('locale apply', () => {
     })
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const locale = b.ctx.get('locale') as LocaleRuntime
-    const pack = b.ctx.plugin({
-      inject: ['locale'],
-      apply: packCtx => packCtx.effect(
-        () => packCtx.locale.addLanguage({ id: 'ru', label: 'Русский', fallback: 'en' }),
-        'test ru pack',
-      ),
-    })
-    await pack.await()
 
     const { instance } = faceOf(b.slots)
     expect(locale.getLocale().active).toBe('ru')
-    expect(instance.getSnapshot().options).toEqual([
+    expect(instance.getSnapshot().options.slice(0, 3)).toEqual([
       { id: 'ru', label: 'Русский' },
       { id: 'en', label: 'English' },
       { id: 'zh', label: '中文' },
@@ -287,12 +317,12 @@ describe('locale apply', () => {
     }).await()
     const overridden = overrideBench.ctx.get('locale') as LocaleRuntime
     expect(overridden.getLocale().active).toBe('en')
-    expect(overridden.getLocale().locales.map(item => item.id)).toEqual(['en', 'zh'])
+    expect(overridden.getLocale().locales.map(item => item.id).slice(0, 2)).toEqual(['en', 'zh'])
     await overrideBench.ctx.fiber.dispose()
   })
 
   it('defers initial __DSH_LOCALE__.onChange until an awaited external defaultLocale registers, or flushes fallback after macrotask turn', async () => {
-    // 1. External pack registers 'ru' right after dsh-client-locale: onChange receives only 'ru', never transient 'en'.
+    // 1. External pack registers 'it' right after dsh-client-locale: onChange receives only 'it', never transient 'en'.
     const b = await bench()
     const onChange = vi.fn()
     vi.stubGlobal('__DSH_LOCALE__', {
@@ -300,8 +330,8 @@ describe('locale apply', () => {
       onChange,
     })
     vi.stubGlobal('__DSH_LOCALE_CONFIG__', {
-      defaultLocale: 'ru',
-      localeOrder: ['ru', 'en', 'zh'],
+      defaultLocale: 'it',
+      localeOrder: ['it', 'ru', 'en', 'zh'],
     })
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     expect(onChange).not.toHaveBeenCalled()
@@ -309,12 +339,12 @@ describe('locale apply', () => {
     await b.ctx.plugin({
       inject: ['locale'],
       apply: packCtx => packCtx.effect(
-        () => packCtx.locale.addLanguage({ id: 'ru', label: 'Русский', fallback: 'en' }),
-        'test ru pack',
+        () => packCtx.locale.addLanguage({ id: 'it', label: 'Italiano', fallback: 'en' }),
+        'test it pack',
       ),
     }).await()
     expect(onChange).toHaveBeenCalledTimes(1)
-    expect(onChange).toHaveBeenCalledWith('ru')
+    expect(onChange).toHaveBeenCalledWith('it')
     await b.ctx.fiber.dispose()
 
     // 2. External pack is absent/disabled: macrotask fallback timer flushes 'en' to __DSH_LOCALE__.onChange once.
@@ -323,6 +353,9 @@ describe('locale apply', () => {
     vi.stubGlobal('__DSH_LOCALE__', {
       read: async () => ({ languages: ['en-US'], preference: null }),
       onChange: fallbackOnChange,
+    })
+    vi.stubGlobal('__DSH_LOCALE_CONFIG__', {
+      defaultLocale: 'it',
     })
     await missingPackBench.ctx.plugin({ inject: [...inject], apply }).await()
     expect(fallbackOnChange).not.toHaveBeenCalled()
@@ -337,6 +370,9 @@ describe('locale apply', () => {
     vi.stubGlobal('__DSH_LOCALE__', {
       read: async () => ({ languages: ['en-US'], preference: null }),
       onChange: disposedOnChange,
+    })
+    vi.stubGlobal('__DSH_LOCALE_CONFIG__', {
+      defaultLocale: 'it',
     })
     const earlyFiber = disposedEarlyBench.ctx.plugin({ inject: [...inject], apply })
     await earlyFiber.await()

@@ -1,6 +1,6 @@
 StrataHarness
 StrataHarness
 Welcome to StrataHarness
-Structured multi-model engineering.
+Cross-platform agent harness with a built-in engineering methodology.
 Configure Models
 Add API Key

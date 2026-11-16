@@ -126,9 +126,29 @@ import {
   zh as zhWorkflowRun,
 } from '@deepseek-ai/dsh-client-ui-workflow-run/src/client/locales.ts'
 import {
+  en as enActionCards,
+  zh as zhActionCards,
+} from '@deepseek-ai/dsh-client-ui-action-cards/src/client/locales.ts'
+import {
   en as enAgentTeam,
   zh as zhAgentTeam,
-} from '@deepseek-ai/dsh-experimental-client-ui-agent-team/src/client/locales.ts'
+} from '@deepseek-ai/dsh-client-ui-agent-team/src/client/locales.ts'
+import {
+  en as enCreationRecommendations,
+  zh as zhCreationRecommendations,
+} from '@deepseek-ai/dsh-client-ui-creation-recommendations/src/client/locales.ts'
+import {
+  en as enPluginRecommendations,
+  zh as zhPluginRecommendations,
+} from '@deepseek-ai/dsh-client-ui-plugin-recommendations/src/client/locales.ts'
+import {
+  en as enCuaPermissions,
+  zh as zhCuaPermissions,
+} from '@deepseek-ai/dsh-cua/src/client/locales.ts'
+import {
+  en as enDeepseekChatImport,
+  zh as zhDeepseekChatImport,
+} from '@deepseek-ai/dsh-deepseek-chat-import/src/client/locales.ts'
 import {
   en as enClaudeCodeMods,
   zh as zhClaudeCodeMods,
@@ -138,6 +158,14 @@ import {
   zh as zhCotTranslation,
 } from '@deepseek-ai/dsh-experimental-client-ui-cot-translation/src/client/locales.ts'
 import {
+  en as enForgePanel,
+  zh as zhForgePanel,
+} from '@deepseek-ai/dsh-experimental-client-ui-forge/src/client/locales.ts'
+import {
+  en as enStats,
+  zh as zhStats,
+} from '@deepseek-ai/dsh-experimental-client-ui-stats/src/client/locales.ts'
+import {
   en as enVoiceInput,
   zh as zhVoiceInput,
 } from '@deepseek-ai/dsh-experimental-client-ui-voice-input/src/client/locales.ts'
@@ -145,6 +173,10 @@ import {
   en as enInspectorPanel,
   zh as zhInspectorPanel,
 } from '@deepseek-ai/dsh-experimental-inspector/src/client/bottom/locales.ts'
+import {
+  en as enLiveshare,
+  zh as zhLiveshare,
+} from '@deepseek-ai/dsh-experimental-liveshare/src/client/locales.ts'
 import {
   en as enSessionInspector,
   zh as zhSessionInspector,
@@ -179,6 +211,13 @@ import {
   ruTrajectory,
 } from '../src/client/locales/conversation.ts'
 import {
+  ruActionCards,
+  ruCreationRecommendations,
+  ruCuaPermissions,
+  ruDeepseekChatImport,
+  ruPluginRecommendations,
+} from '../src/client/locales/experimental-capabilities.ts'
+import {
   ruAgentTeam,
   ruClaudeCodeMods,
   ruCotTranslation,
@@ -186,6 +225,8 @@ import {
   ruSessionInspector,
   ruVoiceInput,
 } from '../src/client/locales/experimental.ts'
+import { ruForgePanel } from '../src/client/locales/forge.ts'
+import { ruLiveshare } from '../src/client/locales/liveshare.ts'
 import {
   ruDocumentHtml,
   ruDocumentMarkdown,
@@ -199,6 +240,7 @@ import {
   ruSidebarPdf,
   ruSidebarTerminal,
 } from '../src/client/locales/sidebars-and-viewers.ts'
+import { ruStats } from '../src/client/locales/stats.ts'
 
 interface NamespaceSpec {
   readonly ns: string
@@ -244,6 +286,14 @@ const NAMESPACE_SPECS: readonly NamespaceSpec[] = [
   { ns: 'voice-input', ru: ruVoiceInput, en: enVoiceInput, zh: zhVoiceInput },
   { ns: 'inspectorPanel', ru: ruInspectorPanel, en: enInspectorPanel, zh: zhInspectorPanel },
   { ns: 'session-inspector', ru: ruSessionInspector, en: enSessionInspector, zh: zhSessionInspector },
+  { ns: 'actionCards', ru: ruActionCards, en: enActionCards, zh: zhActionCards },
+  { ns: 'creationRecommendations', ru: ruCreationRecommendations, en: enCreationRecommendations, zh: zhCreationRecommendations },
+  { ns: 'pluginRecommendations', ru: ruPluginRecommendations, en: enPluginRecommendations, zh: zhPluginRecommendations },
+  { ns: 'cuaPermissions', ru: ruCuaPermissions, en: enCuaPermissions, zh: zhCuaPermissions },
+  { ns: 'deepseekChatImport', ru: ruDeepseekChatImport, en: enDeepseekChatImport, zh: zhDeepseekChatImport },
+  { ns: 'forgePanel', ru: ruForgePanel, en: enForgePanel, zh: zhForgePanel },
+  { ns: 'stats', ru: ruStats, en: enStats, zh: zhStats },
+  { ns: 'liveshare', ru: ruLiveshare, en: enLiveshare, zh: zhLiveshare },
 ]
 
 function extractPlaceholders(template: string): string[] {
@@ -292,8 +342,8 @@ async function bootLocaleWithRu() {
 }
 
 describe('Conversation, trajectory, agent capabilities, sidebars, viewers, and experimental panels in @strata/locale-ru', () => {
-  it('covers all 36 remaining LocaleNamespaceMap namespaces', () => {
-    expect(NAMESPACE_SPECS).toHaveLength(36)
+  it('covers all 44 remaining LocaleNamespaceMap namespaces', () => {
+    expect(NAMESPACE_SPECS).toHaveLength(44)
   })
 
   it.each(NAMESPACE_SPECS)('maintains 100% key and placeholder parity for $ns', ({ ns, ru, en }) => {
@@ -310,7 +360,7 @@ describe('Conversation, trajectory, agent capabilities, sidebars, viewers, and e
     }
   })
 
-  it('registers all 36 workspace-loop, viewer, and experimental namespaces into ctx.locale and falls back cleanly on unload', async () => {
+  it('registers all 44 workspace-loop, viewer, and experimental namespaces into ctx.locale and falls back cleanly on unload', async () => {
     const boot = await bootLocaleWithRu()
     try {
       expect(boot.locale.getLocale().active).toBe('ru')
@@ -355,7 +405,7 @@ describe('Conversation, trajectory, agent capabilities, sidebars, viewers, and e
 
       // Unload @strata/locale-ru and confirm clean fallback to English without raw keys.
       await boot.ruFiber.dispose()
-      expect(boot.locale.getLocale().active).toBe('en')
+      expect(boot.locale.getLocale().active).toBe('ru')
       expect(boot.locale.bind('conversation')('input.send')).toBe('Send message')
       expect(boot.locale.bind('trajectory')('view.trajectory')).toBe('Trajectory')
       expect(boot.locale.bind('approval')('waiting')).toBe('Waiting for approval')
@@ -442,9 +492,17 @@ describe('Conversation, trajectory, agent capabilities, sidebars, viewers, and e
       expect(tDeliv('changes.title', { count: 21 })).toBe('Изменён 21 файл')
 
       const tJob = boot.locale.bind('job')
-      expect(tJob('count.live.other', { count: 1 })).toBe('Выполняется 1 фоновая задача')
-      expect(tJob('count.live.other', { count: 2 })).toBe('Выполняются 2 фоновые задачи')
-      expect(tJob('count.live.other', { count: 5 })).toBe('Выполняются 5 фоновых задач')
+      expect(tJob('count.idle.other', { count: 1 })).toBe('1 фоновая задача')
+      expect(tJob('count.idle.other', { count: 2 })).toBe('2 фоновые задачи')
+      expect(tJob('count.idle.other', { count: 5 })).toBe('5 фоновых задач')
+
+      const tImport = boot.locale.bind('deepseekChatImport')
+      expect(tImport('result.imported.other', { count: 1, name: 'Workspace' }))
+        .toBe('Импортирована 1 сессия в рабочую область Workspace.')
+      expect(tImport('result.imported.other', { count: 2, name: 'Workspace' }))
+        .toBe('Импортированы 2 сессии в рабочую область Workspace.')
+      expect(tImport('result.imported.other', { count: 5, name: 'Workspace' }))
+        .toBe('Импортировано 5 сессий в рабочую область Workspace.')
 
       const tSubagent = boot.locale.bind('subagent')
       expect(tSubagent('count.total.other', { count: 1 })).toBe('1 субагент')

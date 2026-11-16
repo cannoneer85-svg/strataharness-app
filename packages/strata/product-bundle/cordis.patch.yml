@@ -39,9 +39,6 @@
 - id: ui-settings-account
   disabled: true
 
-- id: account-controller
-  disabled: true
-
 - id: ui-settings-session-log
   disabled: true
 
@@ -63,22 +60,15 @@
       - en
       - zh
 
-# ── Select StrataHarness as default preset and hide upstream dsh presets ──────
+# ── Select Strata Developer as default preset and hide minimal preset ─────────
 
 - id: agent-preset-registry
   config:
-    default: strata
-
-- id: preset-standard
-  disabled: true
-
-- id: preset-ptc
-  disabled: true
+    default: strata-developer
+    aliases:
+      strata: strata-developer
 
 - id: preset-minimal
-  disabled: true
-
-- id: preset-cordis
   disabled: true
 
 # ── Host service resolving bundled StrataHarness skill paths & {{strata_root}} ─

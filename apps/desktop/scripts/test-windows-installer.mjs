@@ -1,4 +1,5 @@
 /** Builds an isolated native payload through the production NSIS configuration and exercises its UI. */
+import { readInstallerLocales, renderInstallerStrings } from './installer-locales.mjs'
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
@@ -9,7 +10,7 @@ import { promisify } from 'node:util'
 import { createWindowsTokenSigner, installWindowsNsisBootstrapSigner, scrubWindowsSigningEnvironment } from './windows-sign.mjs'
 import { loadDesktopPackageEnvironment } from './desktop-package-environment.mjs'
 import { createPackagingRun } from './packaging-run.mjs'
-import { STRATA_DESKTOP_APP_ID } from './strata-desktop-config.mjs'
+import { STRATA_DESKTOP_APP_ID, STRATA_NSIS_INSTALLER_LANGUAGES } from './strata-desktop-config.mjs'
 
 if (process.platform !== 'win32' || process.arch !== 'x64') {
   throw new Error('Installer UI checks require an interactive Windows x64 desktop')
@@ -59,10 +60,12 @@ try {
     join(appRoot, 'scripts', 'prepare-windows-installer.ps1'), '-OutputDirectory', join(output, 'ui'), '-CompileProgressOnly'], childOptions)
   const progressTest = join(output, 'ui', 'progress-test.exe')
   const presentationTest = join(output, 'ui', 'presentation-test.exe')
+  const renderTest = join(output, 'ui', 'render-test.exe')
   const cleanupTest = join(output, 'ui', 'data-cleanup-test.exe')
   if (sign) {
     await sign({ path: progressTest, hash: 'sha256', isNest: false })
     await sign({ path: presentationTest, hash: 'sha256', isNest: false })
+    await sign({ path: renderTest, hash: 'sha256', isNest: false })
     await sign({ path: cleanupTest, hash: 'sha256', isNest: false })
     await sign({ path: join(output, 'ui', 'window-frame.dll'), hash: 'sha256', isNest: false })
     installWindowsNsisBootstrapSigner({ sign })
@@ -70,6 +73,23 @@ try {
   if (!uninstallOnly) {
     await execute(progressTest, [], childOptions)
     await execute(presentationTest, [], childOptions)
+    const renderResults = []
+    const themeSource = await readFile(join(appRoot, 'installer', 'theme.nsh'), 'utf8')
+    const captionColor = (name) => {
+      const match = themeSource.match(new RegExp(`^!define ${name} (0x[0-9A-Fa-f]{8})\\r?$`, 'm'))
+      if (!match) throw new Error(`Missing installer caption color: ${name}`)
+      return match[1]
+    }
+    for (const dpi of [96, 192]) {
+      for (const theme of ['light', 'dark']) {
+        const brand = theme === 'dark' ? 'brand-dark-2x.bmp' : 'brand-2x.bmp'
+        const prefix = theme === 'dark' ? 'INSTALLER_DARK_CONTROL' : 'INSTALLER_CONTROL'
+        const result = await execute(renderTest, [join(output, 'ui', brand), String(dpi), theme,
+          captionColor(`${prefix}_HOVER`), captionColor(`${prefix}_PRESSED`)], childOptions)
+        renderResults.push(result.stdout)
+      }
+    }
+    await writeFile(join(output, 'render-results.log'), renderResults.join(''))
   }
   await execute(cleanupTest, [join(output, 'ui', `cleanup-${id}`)], childOptions)
   const payloadSource = join(output, 'payload.nsi')
@@ -89,8 +109,20 @@ SectionEnd
   const compiler = await getMakeNsisPath()
   await execute(compiler.path, ['/V2', payloadSource], { ...childOptions, env: { ...childOptions.env, ...compiler.env } })
   if (sign) await sign({ path: join(payload, `${productName}.exe`), hash: 'sha256', isNest: false })
-  const sourceStrings = await readFile(join(appRoot, 'installer', 'strings.nsh'), 'utf8')
-  for (const language of ['ru_RU', 'en_US', 'zh_CN']) {
+  if (!uninstallOnly && !process.argv.includes('--compile-only')) {
+    const owner = join(output, 'restart-status-owner.exe')
+    await execute(compiler.path, ['/V2', `/DOWNER_EXE=${owner}`,
+      `/DBANNER_INCLUDE=${join(appRoot, 'scripts', 'restart-banner.nsh')}`,
+      `/DSTATUS_DLL=${join(output, 'ui', 'window-frame.dll')}`,
+      join(appRoot, 'tests', 'fixtures', 'restart-status-owner.nsi')],
+    { ...childOptions, env: { ...childOptions.env, ...compiler.env } })
+    if (sign) await sign({ path: owner, hash: 'sha256', isNest: false })
+    await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+      join(appRoot, 'tests', 'windows-restart-status.ps1'), '-OwnerExe', owner], childOptions)
+  }
+  const allowedInstallerLanguages = new Set(STRATA_NSIS_INSTALLER_LANGUAGES)
+  for (const locale of readInstallerLocales().filter(entry => allowedInstallerLanguages.has(entry.id))) {
+    const language = locale.id
     const config = createElectronBuilderConfig()
     if (sign) {
       config.win.forceCodeSigning = true
@@ -99,9 +131,7 @@ SectionEnd
     const languageOutput = join(output, language)
     await mkdir(languageOutput)
     const strings = join(languageOutput, 'strings.nsh')
-    const languageId = language === 'ru_RU' ? 'RUSSIAN' : language === 'en_US' ? 'ENGLISH' : 'SIMPCHINESE'
-    await writeFile(strings, sourceStrings.split('\n').filter((line) =>
-      !line.startsWith('LangString ') || line.includes(`\${LANG_${languageId}}`)).join('\n'))
+    await writeFile(strings, renderInstallerStrings([locale]), 'utf8')
     const include = join(languageOutput, 'include.nsh')
     await writeFile(include, `!define INSTALLER_BUILD_DIR "${join(output, 'ui')}"\n!define INSTALLER_STRINGS_FILE "${strings}"\n!include "${join(appRoot, 'scripts', 'installer.nsh')}"\n`)
     await build({ projectDir: appRoot, prepackaged: payload, targets: Platform.WINDOWS.createTarget(['nsis'], Arch.x64), publish: 'never',
@@ -114,7 +144,7 @@ SectionEnd
       join(appRoot, 'tests', uninstallOnly ? 'windows-uninstall-smoke.ps1' : 'windows-installer-smoke.ps1'),
       '-Installer', join(languageOutput, 'installer-test.exe'),
       '-ProductName', productName, '-RegistryKey', guid, '-OutputDirectory', languageOutput,
-      ...uninstallOnly ? ['-Language', languageId, '-PackageName', packageName] : []], childOptions)
+      '-Language', language, ...uninstallOnly ? ['-PackageName', packageName] : []], childOptions)
     process.stdout.write(`${language}\n${result.stdout}`)
   }
   succeeded = true

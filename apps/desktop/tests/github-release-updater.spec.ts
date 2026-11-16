@@ -250,7 +250,7 @@ describe('GitHubReleaseUpdater and DesktopUpdateCoordinator integration (AC 4–
     expect(await failingCoordinator.check(true)).toMatchObject({
       phase: 'error',
       failedOperation: 'check',
-      message: expect.stringMatching(/HTTP 503/u),
+      message: expect.stringMatching(/HTTP 503/u) as string,
     })
   })
 
@@ -682,7 +682,7 @@ describe('GitHubReleaseUpdater and DesktopUpdateCoordinator integration (AC 4–
       phase: 'error',
       version: '1.0.2',
       failedOperation: 'install',
-      message: expect.stringContaining('spawn EACCES'),
+      message: expect.stringContaining('spawn EACCES') as string,
     })
   })
 
@@ -793,7 +793,7 @@ describe('GitHubReleaseUpdater and DesktopUpdateCoordinator integration (AC 4–
       phase: 'error',
       version: '1.0.2',
       failedOperation: 'install',
-      message: expect.stringContaining('Failed to mount disk image'),
+      message: expect.stringContaining('Failed to mount disk image') as string,
     })
   })
 

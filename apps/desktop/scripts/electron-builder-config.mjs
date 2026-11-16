@@ -1,7 +1,8 @@
+import { readInstallerLocales, renderInstallerStrings } from './installer-locales.mjs'
 import { officePackageDirectories } from '../../../scripts/libreoffice-packages.mjs'
 import { X509Certificate } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
@@ -79,13 +80,16 @@ export function createElectronBuilderConfig(
   if (resolvedPlatform === 'win32') installWindowsDirectoryInstaller()
   const macOSSigning = packagesMacOS && !unsigned ? resolveMacOSSigningEnvironment(env) : undefined
   if (packagesMacOS && !unsigned && !skipNotarization) resolveMacOSNotarizationEnvironment(env)
-  const buildPaths = desktopTargetBuildPaths(resolveDesktopBuildTarget(env, hostPlatform, hostArch))
+  const buildPaths = desktopTargetBuildPaths(resolveDesktopBuildTarget(env, hostPlatform, hostArch), env)
   const output = desktopArtifactOutput(buildPaths, { unsigned, skipNotarization })
   let primaryRuntimeDestination
   let dshDestination
   let windowsCode = []
   const unpack = ['**/*.{node,dylib,dll,so,exe}', '**/*.so.*', '**/spawn-helper', '**/@vscode/ripgrep-*/bin/rg',
-    `**/node_modules/@deepseek-ai/libreoffice-kit-${resolvedPlatform}-${resolvedArch}/**/*`]
+    `**/node_modules/@deepseek-ai/libreoffice-kit-${resolvedPlatform}-${resolvedArch}/**/*`,
+    // LaunchServices opens the Computer Use helper as an application, so every file of its bundles stays on disk.
+    // Both architectures ship: they form one notarized payload whose manifest staging verifies as a whole.
+    '**/node_modules/@deepseek-ai/dsh-experimental-cua-macos/native/bin/**/*']
   const preserveSignature = async (path) => {
     for (const [sourceRoot, destinationRoot] of [[join(buildPaths.runtime, 'primary-runtime'), primaryRuntimeDestination], [buildPaths.dsh, dshDestination]]) {
       if (destinationRoot !== undefined && await preserveWindowsRuntimeSignature(path, {
@@ -123,7 +127,6 @@ export function createElectronBuilderConfig(
   const productVersion = resolveStrataProductVersion(env, repositoryRoot)
   const dshReleaseRepository = resolveStrataReleaseRepository(env, repositoryRoot)
   const buildVersion = resolveDesktopBuildVersion(env, productVersion)
-  if (update?.channel === 'latest' && buildVersion.includes('-')) throw new Error('desktop package: latest requires a stable version')
   const packaged = resolveDesktopBuildCommit(env)
   return {
     appId,
@@ -139,6 +142,8 @@ export function createElectronBuilderConfig(
       ...packaged === undefined ? {} : { dshBuildCommit: packaged.commit, dshBuildDirty: packaged.dirty },
     },
     productName: STRATA_DESKTOP_PRODUCT_NAME,
+    // The default copyright uses author.name; this line names the product instead.
+    copyright: `Copyright © ${new Date().getFullYear()} \${productName}`,
     // Unsigned builds carry their own suffix so a shared file can never pass for a release artifact.
     artifactName: strataArtifactNameTemplate(output.suffix),
     directories: { output: output.directory },
@@ -152,6 +157,7 @@ export function createElectronBuilderConfig(
         '-OutputDirectory', join(buildPaths.root, 'installer-ui')], {
         env: windowsSign.scrubWindowsSigningEnvironment(env), windowsHide: true,
       })
+      await writeFile(join(buildPaths.root, 'installer-ui', 'strings.nsh'), renderInstallerStrings(readInstallerLocales()), 'utf8')
       if (windowsSigner !== undefined) {
         await windowsSigner({ path: join(buildPaths.root, 'installer-ui', 'window-frame.dll'), hash: 'sha256', isNest: false })
       }
@@ -160,6 +166,7 @@ export function createElectronBuilderConfig(
     },
     files: [
       'lib/main.js',
+      'lib/operation-report-worker.js',
       'lib/welcome/**/*',
       'lib/preload-app.cjs',
       'lib/preload-mandatory.cjs',
@@ -286,6 +293,7 @@ export function createElectronBuilderConfig(
       target: ['AppImage'],
     },
     nsis: {
+      uninstallDisplayName: '${productName}',
       installerSidebar: join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp'),
       uninstallerSidebar: join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp'),
       include: fileURLToPath(new URL('./installer.nsh', import.meta.url)),

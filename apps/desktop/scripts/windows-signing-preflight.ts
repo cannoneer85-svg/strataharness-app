@@ -13,6 +13,7 @@ import {
 } from './windows-sign.mjs'
 import { inspectWindowsRuntimeSignature, type WindowsRuntimeSignature } from './windows-runtime-signature.mjs'
 import { failPackagingRun, recordPackagingEvent } from './packaging-run.mjs'
+import { inspectWindowsTokenIdentity, windowsTokenIdentityFailure } from './windows-token-identity.ts'
 
 const PROBE_SOURCE = 'internal static class SigningProbe { private static int Main() { return 0; } }\n'
 
@@ -23,6 +24,7 @@ interface SigningPreflightOptions {
   compile?: (compiler: string, source: string, output: string, environment: NodeJS.ProcessEnv) => Promise<void>
   sign?: ReturnType<typeof createWindowsTokenSigner>
   inspect?: (path: string) => Promise<WindowsRuntimeSignature>
+  inspectIdentity?: typeof inspectWindowsTokenIdentity
 }
 
 async function compileProbe(compiler: string, source: string, output: string, environment: NodeJS.ProcessEnv): Promise<void> {
@@ -33,7 +35,7 @@ async function compileProbe(compiler: string, source: string, output: string, en
 }
 
 /**
- * Sign one newly compiled, never-executed probe and verify its timestamp and configured certificate.
+ * Match public container keys before signing one never-executed probe and verifying its certificate and timestamp.
  * @param options Supervised evidence directory, file-owned settings and isolated test adapters.
  * @returns Resolves after one signature and verification; failures retain evidence; timestamp attempts never repeat hardware signing.
  */
@@ -71,8 +73,9 @@ export async function preflightWindowsSigning(options: SigningPreflightOptions):
   if (!(await lstat(compiler)).isFile()) throw new Error('Windows signing preflight requires the local .NET Framework C# compiler')
   let thumbprint: string | undefined
   let certificateSha256: string | undefined
+  let certificate: Buffer | undefined
   if (!usePfx || environment.DSH_DESKTOP_WINDOWS_CER_FILE?.trim()) {
-    const certificate = await readFile(environment.DSH_DESKTOP_WINDOWS_CER_FILE!)
+    certificate = await readFile(environment.DSH_DESKTOP_WINDOWS_CER_FILE!)
     const leaf = new X509Certificate(certificate)
     if (Date.now() < Date.parse(leaf.validFrom) || Date.now() > Date.parse(leaf.validTo)) {
       throw new Error('Windows signing preflight requires a currently valid public certificate')
@@ -95,6 +98,15 @@ export async function preflightWindowsSigning(options: SigningPreflightOptions):
     signToolSha256: createHash('sha256').update(await readFile(resolvedSignTool)).digest('hex'),
     ...(certificateSha256 === undefined ? {} : { certificateSha256 }),
   })
+  if (!usePfx && certificate !== undefined) {
+    const identity = await (options.inspectIdentity ?? inspectWindowsTokenIdentity)({
+      certificate,
+      container: environment.DSH_DESKTOP_WINDOWS_KEY_CONTAINER!.trim(),
+      environment: scrubWindowsSigningEnvironment(environment),
+    })
+    record({ type: 'signing-preflight-public-identity', result: identity, pinSupplied: false })
+    if (identity !== 'matched') throw new Error(windowsTokenIdentityFailure(identity))
+  }
   await (options.compile ?? compileProbe)(compiler, source, output, environment)
   const inspect = options.inspect ?? inspectWindowsRuntimeSignature
   if ((await inspect(output)).status !== 'NotSigned') throw new Error('Windows signing preflight requires a new unsigned probe')

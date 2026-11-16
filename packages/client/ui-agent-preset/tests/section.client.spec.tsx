@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { contextMenuHook } from '@deepseek-ai/dsh-client-test-runtime'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { allowAllAccess, bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
@@ -24,6 +27,7 @@ function view(partial: Partial<AgentPresetSectionState> = {}, startCreatorDraft?
     usePanelInfo: unusedHook, useSessions: unusedHook, useSessionStatus: unusedHook, useSessionRetainInfo: unusedHook,
     useWorkspaces: unusedHook, useResource: unusedHook,
     ...allowAllAccess,
+    useContextMenu: contextMenuHook(),
     useAgentPresetSection: bindSnapshotSelector(store),
     useDeveloperTools: bindSnapshotSelector(developerTools),
     t: key => translations.get(key) ?? key }
@@ -44,32 +48,40 @@ it.each([false, true])('offers Standard, Creator and custom defaults with Coding
   ] }, vi.fn(), undefined, enabled)
   expect(screen.queryByRole('button', { name: `${en.setDefault}: ${en.presetPtcName}` }) !== null).toBe(enabled)
   expect(screen.queryByRole('button', { name: `${en.inUse}: ${en.presetMinimalName}` }) !== null).toBe(enabled)
-  for (const [id, name] of [['standard', en.presetStandardName], ['cordis', en.presetCordisName], ['mine', 'Mine']]) {
+  expect(screen.queryByRole('button', { name: `${en.setDefault}: ${en.presetCordisName}` }) !== null).toBe(enabled)
+  expect(screen.queryByRole('button', { name: en.creatorDraft }) !== null).toBe(enabled)
+  for (const [id, name] of [
+    ['standard', en.presetStandardName],
+    ['mine', 'Mine'],
+    ...(enabled ? [['cordis', en.presetCordisName]] as const : []),
+  ]) {
     const button = screen.getByRole<HTMLButtonElement>('button', { name: `${en.setDefault}: ${name}` })
     expect(button.disabled).toBe(false)
     fireEvent.click(button)
     expect(actions.makeDefault).toHaveBeenLastCalledWith(id)
   }
-  expect(screen.getByRole<HTMLButtonElement>('button', { name: en.creatorDraft }).disabled).toBe(false)
 })
 it('updates visible settings choices without writing defaults from the renderer', () => {
   const actions = view({ rows: [
     { id: 'standard', isDefault: false }, { id: 'ptc', isDefault: false },
     { id: 'minimal', isDefault: true }, { id: 'cordis', isDefault: false },
-  ] })
+  ] }, vi.fn())
   const rows = actions.store.getSnapshot().rows
   act(() => { actions.developerTools.set(false) })
   expect(document.querySelector('[data-agent-preset-id="ptc"]')).toBeNull()
   expect(document.querySelector('[data-agent-preset-id="minimal"]')).toBeNull()
+  expect(document.querySelector('[data-agent-preset-id="cordis"]')).toBeNull()
+  expect(screen.queryByRole('button', { name: en.creatorDraft })).toBeNull()
   expect(rowFor('standard')).toBeTruthy()
-  expect(rowFor('cordis')).toBeTruthy()
   expect(actions.makeDefault).not.toHaveBeenCalled()
   expect(actions.store.getSnapshot().rows).toBe(rows)
   act(() => { actions.developerTools.set(true) })
   expect(screen.getByRole('button', { name: `${en.inUse}: ${en.presetMinimalName}` })).toBeTruthy()
   expect(rowFor('ptc')).toBeTruthy()
+  expect(rowFor('cordis')).toBeTruthy()
+  expect(screen.getByRole('button', { name: en.creatorDraft })).toBeTruthy()
 })
-it.each(['ptc', 'minimal'])('keeps a named custom %s override selectable with Coding Tools off', (id) => {
+it.each(['ptc', 'minimal', 'cordis'])('keeps a named custom %s override selectable with Coding Tools off', (id) => {
   const actions = view({ rows: [{ id, name: 'My mode', isDefault: false }] }, undefined, undefined, false)
   fireEvent.click(screen.getByRole('button', { name: `${en.setDefault}: My mode` }))
   expect(actions.makeDefault).toHaveBeenCalledWith(id)
@@ -287,7 +299,7 @@ it.each([false, true])('only offers a description tooltip when the card clips it
   const disconnect = vi.spyOn(ResizeObserver.prototype, 'disconnect')
   vi.useFakeTimers()
   view({ rows: [{ id: 'mine', isDefault: false, description: 'Preset description' }] })
-  fireEvent.mouseEnter(screen.getByText('Preset description'))
+  fireEvent.pointerEnter(screen.getByText('Preset description'))
   act(() => { vi.advanceTimersByTime(400) })
   expect(screen.queryByRole('tooltip')?.textContent ?? null).toBe(overflow ? 'Preset description' : null)
   cleanup()
@@ -299,4 +311,75 @@ it('renders descriptions and allows selection without resize observation', () =>
   expect(screen.getByText('Preset description')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: `${en.setDefault}: Mine` }))
   expect(actions.makeDefault).toHaveBeenCalledWith('mine')
+})
+
+it('shows only the 4 base presets at Coding Tools false and adds ptc + cordis + creatorDraft at true', () => {
+  const strataRoster: AgentPresetSectionState['rows'] = [
+    { id: 'strata-developer', isDefault: true },
+    { id: 'standard', isDefault: false },
+    { id: 'strata-analyst', isDefault: false },
+    { id: 'strata-designer', isDefault: false },
+    { id: 'ptc', isDefault: false },
+    { id: 'cordis', isDefault: false },
+  ]
+  const actions = view({ rows: strataRoster }, vi.fn(), undefined, false)
+  const renderedIds = () => [...document.querySelectorAll<HTMLElement>('[data-agent-preset-id]')].map(el => el.dataset.agentPresetId)
+
+  expect(renderedIds()).toEqual(['strata-developer', 'standard', 'strata-analyst', 'strata-designer'])
+  expect(screen.queryByRole('button', { name: en.creatorDraft })).toBeNull()
+
+  act(() => { actions.developerTools.set(true) })
+  expect(renderedIds()).toEqual(['strata-developer', 'standard', 'strata-analyst', 'strata-designer', 'ptc', 'cordis'])
+  expect(screen.getByRole('button', { name: en.creatorDraft })).toBeTruthy()
+})
+
+it('renders non-collapsing wrapping header structure for preset titles next to badge and id', () => {
+  const cssPath = resolve(import.meta.dirname, '..', 'src', 'client', 'AgentPresetSection.module.css')
+  const cssText = readFileSync(cssPath, 'utf8')
+  const cardHeadBlock = /\.cardHead\s*\{([^}]*)\}/.exec(cssText)?.[1] ?? ''
+  const cardIdentityBlock = /\.cardIdentity\s*\{([^}]*)\}/.exec(cssText)?.[1] ?? ''
+  const cardNameBlock = /\.cardName\s*\{([^}]*)\}/.exec(cssText)?.[1] ?? ''
+
+  expect(cardHeadBlock).toContain('flex-wrap: wrap')
+  expect(cardIdentityBlock).toContain('flex-wrap: wrap')
+  expect(cardNameBlock).toContain('white-space: normal')
+  expect(cardNameBlock).not.toContain('text-overflow: ellipsis')
+
+  const russian: ReadonlyMap<string, string> = new Map(Object.entries({ ...en, inUse: 'По умолчанию' }))
+  const developerTools = createSnapshotStore(false)
+  const store = createSnapshotStore<AgentPresetSectionState>({
+    status: 'ready',
+    error: null,
+    saving: false,
+    rows: [
+      { id: 'strata-developer', isDefault: true },
+      { id: 'strata-analyst', isDefault: false },
+      { id: 'strata-designer', isDefault: false },
+    ],
+    view: null,
+  })
+  render(
+    <AgentPresetSection
+      load={vi.fn(async () => {})}
+      view={vi.fn(async () => {})}
+      closeView={vi.fn()}
+      makeDefault={vi.fn(async () => {})}
+      close={vi.fn()}
+      usePanelInfo={unusedHook}
+      useSessions={unusedHook}
+      useSessionStatus={unusedHook}
+      useSessionRetainInfo={unusedHook}
+      useWorkspaces={unusedHook}
+      useResource={unusedHook}
+      {...allowAllAccess}
+      useContextMenu={contextMenuHook()}
+      useAgentPresetSection={bindSnapshotSelector(store)}
+      useDeveloperTools={bindSnapshotSelector(developerTools)}
+      t={key => russian.get(key) ?? key}
+    />,
+  )
+  const devCard = rowFor('strata-developer')
+  expect(within(devCard).getByText('Strata Developer').getAttribute('title')).toBe('Strata Developer')
+  expect(within(devCard).getByText('По умолчанию')).toBeTruthy()
+  expect(within(devCard).getByText('strata-developer')).toBeTruthy()
 })

@@ -13,6 +13,13 @@ import {
   ruWorkflowRun,
 } from './locales/agent-capabilities.ts'
 import { ruSettingsAgentPreset } from './locales/agent-preset.ts'
+import {
+  ruAccountNotifications,
+  ruContextMenu,
+  ruFileActions,
+  ruFileDrag,
+  ruMessageQuotes,
+} from './locales/client-ui.ts'
 import { RU_LOCALE_ID, RU_LOCALE_LABEL, ruCommon, ruSettingsLocale } from './locales/common.ts'
 import {
   ruApproval,
@@ -27,6 +34,13 @@ import {
   ruTrajectory,
 } from './locales/conversation.ts'
 import {
+  ruActionCards,
+  ruCreationRecommendations,
+  ruCuaPermissions,
+  ruDeepseekChatImport,
+  ruPluginRecommendations,
+} from './locales/experimental-capabilities.ts'
+import {
   ruAgentTeam,
   ruClaudeCodeMods,
   ruCotTranslation,
@@ -34,8 +48,9 @@ import {
   ruSessionInspector,
   ruVoiceInput,
 } from './locales/experimental.ts'
+import { ruForgePanel } from './locales/forge.ts'
+import { ruLiveshare } from './locales/liveshare.ts'
 import {
-  ruDeepseekModelLabel1017,
   ruModel,
   ruSettingsModels,
 } from './locales/models.ts'
@@ -83,6 +98,7 @@ import {
   ruSidebarPdf,
   ruSidebarTerminal,
 } from './locales/sidebars-and-viewers.ts'
+import { ruStats } from './locales/stats.ts'
 
 const RU_DICTIONARIES: readonly [namespace: string, dict: Readonly<Record<string, string>>][] = [
   ['common', ruCommon],
@@ -114,7 +130,11 @@ const RU_DICTIONARIES: readonly [namespace: string, dict: Readonly<Record<string
   ['open-in-app', ruOpenInApp],
   ['permission.access', ruPermissionAccess],
   ['model', ruModel],
-  ['deepseek-model-label-1017', ruDeepseekModelLabel1017],
+  ['account.notifications', ruAccountNotifications],
+  ['contextMenu', ruContextMenu],
+  ['fileActions', ruFileActions],
+  ['fileDrag', ruFileDrag],
+  ['messageQuotes', ruMessageQuotes],
   ['conversation', ruConversation],
   ['chat', ruChat],
   ['trajectory', ruTrajectory],
@@ -151,6 +171,14 @@ const RU_DICTIONARIES: readonly [namespace: string, dict: Readonly<Record<string
   ['voice-input', ruVoiceInput],
   ['inspectorPanel', ruInspectorPanel],
   ['session-inspector', ruSessionInspector],
+  ['actionCards', ruActionCards],
+  ['creationRecommendations', ruCreationRecommendations],
+  ['pluginRecommendations', ruPluginRecommendations],
+  ['cuaPermissions', ruCuaPermissions],
+  ['deepseekChatImport', ruDeepseekChatImport],
+  ['forgePanel', ruForgePanel],
+  ['stats', ruStats],
+  ['liveshare', ruLiveshare],
 ]
 
 /** Required service: the Phase-1 browser locale runtime. */
@@ -161,9 +189,9 @@ export const inject = ['locale']
  * @param ctx - Client plugin context providing `ctx.locale`.
  */
 export function apply(ctx: ClientContext): void {
-  ctx.effect(() => ctx.locale.addLanguage({ id: RU_LOCALE_ID, label: RU_LOCALE_LABEL, fallback: 'en' }))
+  ctx.effect(() => ctx.locale.addLanguage({ id: RU_LOCALE_ID, label: RU_LOCALE_LABEL, fallback: 'en' }, { ifExists: 'ignore' }))
   for (const [namespace, dict] of RU_DICTIONARIES) {
-    ctx.effect(() => ctx.locale.register(namespace, RU_LOCALE_ID, dict))
+    ctx.effect(() => ctx.locale.register(namespace, RU_LOCALE_ID, dict, { override: true }))
   }
   ctx.effect(() => ctx.locale.registerTextCatalog(RU_LOCALE_ID, ruPluginMetadataCatalog))
 }

@@ -896,7 +896,7 @@ describe('ui-agent-preset apply', () => {
     await b.ctx.fiber.dispose()
   })
 
-  it.each(['ptc', 'minimal'])('resets an accepted disabled %s default once, without restoring it on enable', async (id) => {
+  it.each(['ptc', 'minimal', 'cordis'])('resets an accepted disabled %s default once, without restoring it on enable', async (id) => {
     const b = await bench({ developerToolsEnabled: false, presets: [
       { id: 'standard', isDefault: false }, { id, isDefault: true },
     ] })
@@ -912,7 +912,7 @@ describe('ui-agent-preset apply', () => {
     await b.ctx.fiber.dispose()
   })
 
-  it.each([['standard', undefined], ['cordis', undefined], ['mine', 'Mine'], ['ptc', 'Custom PTC'], ['minimal', 'Custom Minimal']] as const)(
+  it.each([['standard', undefined], ['mine', 'Mine'], ['ptc', 'Custom PTC'], ['minimal', 'Custom Minimal'], ['cordis', 'Custom Creator']] as const)(
     'keeps the allowed default %s (%s) when Coding Tools are disabled', async (id, name) => {
       const b = await bench({ developerToolsEnabled: false, presets: [
         { id, isDefault: true, ...(name === undefined ? {} : { name }) },

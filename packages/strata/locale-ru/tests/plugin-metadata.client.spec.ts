@@ -133,7 +133,7 @@ interface OfficialCatalogEntryShape {
 }
 
 async function discoverOfficialBundleMetadata(): Promise<DiscoveredPluginMeta[]> {
-  const generatedPath = join(REPO_ROOT, 'packages', 'boot', 'app-boot', 'src', 'official-bundles.generated.ts')
+  const generatedPath = join(REPO_ROOT, 'packages', 'util', 'official-bundles', 'src', 'catalog.generated.ts')
   const mod = await import(pathToFileURL(generatedPath).href) as {
     readonly OFFICIAL_ON_DEMAND_CATALOG: readonly OfficialCatalogEntryShape[]
   }
@@ -394,9 +394,9 @@ describe('Strata package manifests, centralized Russian plugin metadata catalog,
       expect(boot.locale.resolveText('Literal user-authored title'))
         .toBe('Literal user-authored title')
 
-      // 4. Disposing @strata/locale-ru removes the catalog and degrades cleanly to English.
+      // 4. Disposing @strata/locale-ru removes the catalog while keeping built-in ru active and falling back to English metadata.
       await boot.ruFiber.dispose()
-      expect(boot.locale.getLocale().active).toBe('en')
+      expect(boot.locale.getLocale().active).toBe('ru')
       expect(boot.locale.resolveText(builtInText)).toBe('Time awareness')
     } finally {
       await boot.ctx.fiber.dispose()
@@ -405,17 +405,17 @@ describe('Strata package manifests, centralized Russian plugin metadata catalog,
 
   it('localizes sandbox escalation and auto-review displayReason prompts in Russian with mode and justification interpolation', async () => {
     const escalationSource = readFileSync(
-      join(REPO_ROOT, 'packages', 'sandbox', 'sandbox', 'src', 'escalation.ts'),
+      join(REPO_ROOT, 'packages', 'sandbox', 'sandbox', 'src', 'locales.ts'),
       'utf8',
     )
     const autoReviewSource = readFileSync(
-      join(REPO_ROOT, 'packages', 'experimental', 'auto-review', 'src', 'index.ts'),
+      join(REPO_ROOT, 'packages', 'experimental', 'auto-review', 'src', 'locales.ts'),
       'utf8',
     )
 
-    expect(escalationSource).toContain('ru: `Разрешить эту операцию с правами ${mode}: ${justification}`')
-    expect(autoReviewSource).toContain("ru: 'Автопроверка отклонила этот вызов.'")
-    expect(autoReviewSource).toContain('ru: `Автопроверка отклонила этот вызов: ${reason}`')
+    expect(escalationSource).toContain('`Разрешить эту операцию с правами ${mode}: ${justification}`')
+    expect(autoReviewSource).toContain("denied: 'Автопроверка отклонила этот вызов.'")
+    expect(autoReviewSource).toContain('`Автопроверка отклонила этот вызов: ${reason}`')
 
     const boot = await bootLocaleWithRu()
     try {

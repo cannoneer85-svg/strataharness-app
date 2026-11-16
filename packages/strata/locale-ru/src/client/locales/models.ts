@@ -1,8 +1,7 @@
 /**
- * Typed Russian dictionaries for the Models Settings section, the conversation
- * model and reasoning-effort selector, and the DeepSeek release badge.
+ * Typed Russian dictionaries for the Models Settings section and the conversation
+ * model and reasoning-effort selector.
  */
-import type {} from '@deepseek-ai/dsh-client-ui-deepseek-model-label-1017/client'
 import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-models/client'
 import type { LocaleDictOf } from '@deepseek-ai/dsh-client-ui-slots'
@@ -48,7 +47,11 @@ export const ruSettingsModels = {
   keyHide: 'Скрыть секрет',
   keyPlaceholder: 'Введите API-ключ',
   keyPlaceholderFallback: 'Оставьте пустым для авторизации через окружение ({hint})',
-  keyPlaceholderSaved: 'Оставьте пустым для использования сохранённого ключа',
+  keySaved: 'Используется сохранённый API-ключ.',
+  keyReplacePending: 'Примените настройки, чтобы заменить сохранённый API-ключ.',
+  keyRemovePending: 'Примените настройки, чтобы удалить сохранённый API-ключ и использовать авторизацию из окружения.',
+  keyRemovePendingEnvironment: 'Примените настройки, чтобы удалить сохранённый API-ключ. Будет использоваться авторизация из окружения ({hint}).',
+  keyRemoveApplied: 'Ключ удалён. Примените настройки повторно для завершения обновления; это удаление нельзя отменить.',
   keyFallbackMissing: 'Переменная окружения не обнаружена. Введите API-ключ или задайте {hint} в окружении.',
   keyFallbackDetected: 'Обнаружена переменная окружения ({hint})',
   keyFallbackDetectedHidden: 'Обнаружена переменная окружения.',
@@ -89,6 +92,9 @@ export const ruSettingsModels = {
   modelReasoningAdd: 'Добавить уровень',
   modelReasoningRemove: 'Удалить уровень',
   modelReasoningOffValuePlaceholder: 'Отключает рассуждения',
+  modelReasoningLevelsOnly: 'Этот протокол API поддерживает только уровни minimal, low, medium и high, причём значение API должно совпадать с названием уровня. Измените или удалите остальные уровни.',
+  reorderModel: 'Изменить порядок модели',
+  reorderModelHelp: 'Перетащите для изменения порядка или используйте клавиши со стрелками вверх и вниз.',
   addModel: 'Добавить модель',
   removeModel: 'Удалить модель',
   modelsEmpty: 'В селекторе не будет показано ни одной модели. Неперечисленные ID по-прежнему можно отправлять напрямую.',
@@ -114,6 +120,7 @@ export const ruSettingsModels = {
   fetchSelectAll: 'Выбрать все',
   fetchDeselectAll: 'Снять выделение',
   fetchAdopt: 'Добавить выбранные',
+  fetchKeepOne: 'Оставьте отмеченной хотя бы одну модель.',
   customTag: 'Пользовательский',
   customRoute: 'ID провайдера',
   customRouteHint: 'Идентификатор в нижнем регистре, начинающийся с буквы; уникально именует провайдера в запросах и в хранилище учётных данных.',
@@ -125,11 +132,42 @@ export const ruSettingsModels = {
   protocolOpenAiCompletions: 'OpenAI Chat Completions',
   protocolOpenAiResponses: 'OpenAI Responses',
   protocolAnthropicMessages: 'Anthropic Messages',
+  protocolGemini: 'Gemini API',
   customNeedsBaseUrl: 'Для собственного провайдера необходим базовый URL.',
   customBaseUrlInvalid: 'Введите корректный URL с протоколом HTTP или HTTPS.',
   customNeedsModels: 'Для собственного провайдера необходима хотя бы одна модель.',
   customBaseUrlPlaceholder: 'https://gateway.example/v1',
   customAnthropicBaseUrlPlaceholder: 'https://gateway.example',
+  customGeminiBaseUrlPlaceholder: 'https://gateway.example/v1beta',
+  retryPolicy: 'Политика повторных попыток',
+  retryModeDefault: 'По умолчанию ({mode})',
+  retryModeNormal: 'Только временные ошибки',
+  retryModeAlways: 'Все ошибки',
+  retryAlwaysHint: 'Неудачные запросы повторяются до успеха или остановки хода.',
+  retryMaxRetries: 'Максимум повторов',
+  retryCodes: 'Коды ошибок',
+  retryCodeEmptyResponse: 'Пустой ответ',
+  retryCodeRateLimit: 'Превышен лимит запросов',
+  retryCodeServer: 'Ошибка сервера',
+  retryCodeTimeout: 'Тайм-аут',
+  retryCodeTransport: 'Ошибка сети',
+  retryCodeStreamClosed: 'Поток прерван',
+  retryCodeMalformedResponse: 'Некорректный ответ',
+  retryCodeQuota: 'Квота исчерпана',
+  retryCodeCustom: 'Пользовательский код ошибки',
+  retryCodeAdd: 'Добавить',
+  retryInitialDelay: 'Начальная задержка (мс)',
+  retryMaxDelay: 'Максимальная задержка (мс)',
+  retryJitter: 'Коэффициент джиттера',
+  retryBackoff: 'Отсрочка',
+  retryValueNumber: 'Введите число.',
+  retryValueInteger: 'Введите целое число.',
+  retryValuePositive: 'Должно быть больше 0.',
+  retryValueMin: 'Должно быть не меньше {min}.',
+  retryValueMax: 'Должно быть не больше {max}.',
+  retryCodesInvalid: 'Коды ошибок должны быть непустыми строками.',
+  retryCodesDuplicate: 'Каждый код ошибки может встречаться только один раз.',
+  retryDelayOrder: 'Начальная задержка не может превышать максимальную.',
   settingsPathUnresolvable: 'не удалось разрешить путь настроек',
   create: 'Создать провайдера',
   creating: 'Создание…',
@@ -171,8 +209,3 @@ export const ruModel = {
   'empty.models': 'Нет доступных моделей.',
   'empty.efforts': 'Эта модель не поддерживает выбор уровня рассуждений.',
 } satisfies LocaleDictOf<'model'>
-
-/** Russian dictionary for the `deepseek-model-label-1017` release badge namespace. */
-export const ruDeepseekModelLabel1017 = {
-  'badge.label': '1017',
-} satisfies LocaleDictOf<'deepseek-model-label-1017'>

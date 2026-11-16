@@ -261,7 +261,7 @@ describe('macOS unsigned dual-format targets and StrataHarness HTTPS update feed
       DSH_DESKTOP_TARGET_ARCH: 'arm64',
       DSH_DESKTOP_UNSIGNED: '0',
       DSH_DESKTOP_AUTO_UPDATE_ENV: 'production',
-      DSH_DESKTOP_UPDATE_CHANNEL: 'latest',
+      DSH_DESKTOP_UPDATE_CHANNEL: 'stable',
       ...MACOS_SIGNING_SECRETS,
       ...MACOS_API_KEY_NOTARY_SECRETS,
     }
@@ -289,7 +289,7 @@ describe('macOS unsigned dual-format targets and StrataHarness HTTPS update feed
       {
         provider: 'generic',
         url: 'https://releases.strataharness.dev/strataharness/feeds/mac-arm64/',
-        channel: 'latest',
+        channel: 'stable',
       },
     ])
 
@@ -297,7 +297,7 @@ describe('macOS unsigned dual-format targets and StrataHarness HTTPS update feed
       resolveDesktopAutoUpdateConfig(
         {
           DSH_DESKTOP_AUTO_UPDATE_ENV: 'production',
-          DSH_DESKTOP_UPDATE_CHANNEL: 'latest',
+          DSH_DESKTOP_UPDATE_CHANNEL: 'stable',
           DOWNLOAD_PROD_ORIGIN: 'https://releases.strataharness.dev',
         },
         'win32',
@@ -305,11 +305,11 @@ describe('macOS unsigned dual-format targets and StrataHarness HTTPS update feed
       ),
     ).toEqual({
       environment: 'production',
-      channel: 'latest',
+      channel: 'stable',
       target: 'win-x64',
       origin: 'https://releases.strataharness.dev',
       keyPrefix: 'strataharness/feeds/win-x64',
-      binaryKeyPrefix: 'strataharness/bin/win-x64/latest',
+      binaryKeyPrefix: 'strataharness/bin/win-x64/stable',
       publicUrl: 'https://releases.strataharness.dev/strataharness/feeds/win-x64/',
     })
 
@@ -600,7 +600,7 @@ describe('Windows cloud .pfx signing adapter and RFC-3161 TSA fallback chain', (
       DSH_DESKTOP_TARGET_ARCH: 'x64',
       STRATA_SIGNING_MODE: 'signed',
       DSH_DESKTOP_AUTO_UPDATE_ENV: 'production',
-      DSH_DESKTOP_UPDATE_CHANNEL: 'latest',
+      DSH_DESKTOP_UPDATE_CHANNEL: 'stable',
       WIN_CSC_LINK: pfxPayload.toString('base64'),
       WIN_CSC_KEY_PASSWORD: 'ci-pfx-password',
       DSH_DESKTOP_WINDOWS_SIGNATURE_CACHE_DIR: join(fixtureRoot, 'sig-cache'),
@@ -635,7 +635,7 @@ describe('Windows cloud .pfx signing adapter and RFC-3161 TSA fallback chain', (
       {
         provider: 'generic',
         url: 'https://cdn.strataharness.dev/strataharness/feeds/win-x64/',
-        channel: 'latest',
+        channel: 'stable',
       },
     ])
 

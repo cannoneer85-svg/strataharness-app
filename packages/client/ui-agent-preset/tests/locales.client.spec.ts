@@ -1,7 +1,7 @@
 /** Web-localized copy for shipped presets (upstream and Strata roles) and declared copy for every other row. */
 
 import { describe, expect, it } from 'vitest'
-import { en, isBuiltInPreset, presetDisplayText, zh } from '../src/client/locales.ts'
+import { en, ja, isBuiltInPreset, presetDisplayText, ru, zh } from '../src/client/locales.ts'
 
 const translate = (bundle: typeof en) => (key: keyof typeof en): string => bundle[key]
 
@@ -15,7 +15,7 @@ describe('preset display copy', () => {
     ['strata-developer', 'presetStrataDeveloperName', 'presetStrataDeveloperDescription'],
     ['strata-analyst', 'presetStrataAnalystName', 'presetStrataAnalystDescription'],
     ['strata-designer', 'presetStrataDesignerName', 'presetStrataDesignerDescription'],
-  ] as const)('localizes the shipped %s preset in English and Chinese', (id, nameKey, descriptionKey) => {
+  ] as const)('localizes the shipped %s preset across English, Chinese, Japanese, and Russian', (id, nameKey, descriptionKey) => {
     const preset = { id }
 
     expect(isBuiltInPreset(preset)).toBe(true)
@@ -23,6 +23,10 @@ describe('preset display copy', () => {
       .toEqual({ name: en[nameKey], description: en[descriptionKey] })
     expect(presetDisplayText(preset, translate(zh)))
       .toEqual({ name: zh[nameKey], description: zh[descriptionKey] })
+    expect(presetDisplayText(preset, translate(ja)))
+      .toEqual({ name: ja[nameKey], description: ja[descriptionKey] })
+    expect(presetDisplayText(preset, translate(ru)))
+      .toEqual({ name: ru[nameKey], description: ru[descriptionKey] })
   })
 
   it.each([

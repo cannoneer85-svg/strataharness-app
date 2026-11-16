@@ -29,9 +29,10 @@ import {
   type LocaleId,
   type LocaleSettings,
 } from '../locale-settings.ts'
-import { en, zh, type CommonKey } from '../locales/index.ts'
+import { en, ja, es, fr, de, ru, pt, zh, type CommonKey } from '../locales/index.ts'
 import {
-  en as settingsEn, zh as settingsZh, type SettingsLocaleKey,
+  en as settingsEn, ja as settingsJa, es as settingsEs, fr as settingsFr,
+  de as settingsDe, ru as settingsRu, pt as settingsPt, zh as settingsZh, type SettingsLocaleKey,
 } from '../locales/settings.ts'
 import type { LanguageRowInjected } from './LanguageRow.tsx'
 import { LanguageRow } from './LanguageRow.tsx'
@@ -123,7 +124,7 @@ export const COMMON_NS = 'common'
 /** Namespace owning this feature's settings-row copy. */
 export const SETTINGS_NS = 'settings.locale'
 
-/** The two locales and dictionaries shipped by this package. */
+/** The baseline locales required by typed dictionary registrations. */
 const BUILT_IN_LOCALE_METADATA = {
   zh: { label: '中文', fallback: 'en' },
   en: { label: 'English' },
@@ -194,6 +195,8 @@ interface DictionaryLookupHit {
  */
 export class LocaleRuntime {
   private dicts = new Map<string, Map<string, LocaleDict>>()
+  // strata(override): language-pack override layers checked before base dictionaries
+  private overrideDicts = new Map<string, Map<string, LocaleDict[]>>()
   private textCatalogs = new Map<string, ReadonlyMap<string, string>[]>()
   private pluralRules = new Map<string, Intl.PluralRules>()
   private bound = new Map<string, Translate>()
@@ -360,14 +363,18 @@ export class LocaleRuntime {
    * ordered language list. The caller owns the returned disposer; removing an
    * active language falls back without clearing the stored id.
    * @param input - stable id, self-described label, and fallback language id.
+   * @param options - optional duplicate-id handling (`'ignore'` preserves the existing entry with a no-op disposer).
    * @returns idempotent disposer removing this exact definition.
-   * @throws when fields are malformed, the id is occupied, or the fallback
+   * @throws when fields are malformed, the id is occupied under default options, or the fallback
    * target is unknown or creates a cycle.
    */
-  addLanguage(input: LanguageRegistration): () => void {
+  addLanguage(input: LanguageRegistration, options?: { readonly ifExists?: 'throw' | 'ignore' }): () => void {
     const candidate = normalizeLanguage(input)
     const key = localeKey(candidate.id)
-    if (this.catalog.has(key)) throw new Error(`locale "${candidate.id}" is already registered`)
+    if (this.catalog.has(key)) {
+      if (options?.ifExists === 'ignore') return () => {}
+      throw new Error(`locale "${candidate.id}" is already registered`)
+    }
     const fallback = this.catalog.get(localeKey(candidate.fallback))
     if (fallback === undefined) {
       throw new Error(`locale fallback "${candidate.fallback}" is not registered`)
@@ -514,26 +521,35 @@ export class LocaleRuntime {
    * Register a declared namespace's dictionaries, all locales in one call —
    * the typed form: each dictionary is checked against the namespace's
    * {@link LocaleNamespaceMap} key union (a missing or extra key is a
-   * compile error), and every shipped locale is required (bilingual balance
+   * compile error), and both baseline locales are required (bilingual balance
    * enforced at registration). Duplicate (ns, locale) throws (single occupant; a
    * namespace's texts have one owner). Registration bumps the revision so
    * mounted outlets pick up late-arriving dictionaries.
    * @param ns - a namespace merged into LocaleNamespaceMap.
-   * @param dicts - complete dictionaries keyed by built-in locale id.
+   * @param dicts - complete baseline dictionaries and optional dictionaries for additional locale ids.
    * @returns disposer removing every locale registered by this call (idempotent).
    */
-  register<N extends Extract<keyof LocaleNamespaceMap, string>>(ns: N, dicts: Record<BuiltInLocaleId, LocaleDictOf<N>>): () => void
+  register<N extends Extract<keyof LocaleNamespaceMap, string>>(
+    ns: N,
+    dicts: Record<BuiltInLocaleId, LocaleDictOf<N>> & Record<LocaleId, LocaleDictOf<N>>,
+  ): () => void
   /**
    * Single-locale untyped form for language-pack contributions and namespaces
    * outside the merge table.
    * @param ns - namespace.
    * @param locale - locale tag.
    * @param dict - dictionary.
+   * @param options - optional override flag allowing curated language packs to layer on top of shipped dictionaries.
    * @returns disposer (idempotent).
    * @throws when locale is not a BCP 47-style tag.
    */
-  register(ns: string, locale: string, dict: LocaleDict): () => void
-  register(ns: string, localeOrDicts: string | Record<string, LocaleDict>, dict?: LocaleDict): () => void {
+  register(ns: string, locale: string, dict: LocaleDict, options?: { readonly override?: boolean }): () => void
+  register(
+    ns: string,
+    localeOrDicts: string | Record<string, LocaleDict>,
+    dict?: LocaleDict,
+    options?: { readonly override?: boolean },
+  ): () => void {
     const pairs: [string, LocaleDict][] = typeof localeOrDicts === 'string'
       // Overload guarantees dict on the single-locale arm.
       ? [[localeOrDicts, dict as LocaleDict]]
@@ -541,6 +557,31 @@ export class LocaleRuntime {
     for (const [locale] of pairs) {
       if (!LOCALE_ID_PATTERN.test(locale)) {
         throw new Error(`locale id "${locale}" is not a BCP 47-style tag`)
+      }
+    }
+    if (typeof localeOrDicts === 'string' && options?.override) {
+      const targetKey = localeKey(localeOrDicts)
+      const entries = dict as LocaleDict
+      let overrides = this.overrideDicts.get(ns)
+      if (!overrides) {
+        overrides = new Map()
+        this.overrideDicts.set(ns, overrides)
+      }
+      let stack = overrides.get(targetKey)
+      if (!stack) {
+        stack = []
+        overrides.set(targetKey, stack)
+      }
+      stack.push(entries)
+      this.publish(this.snapshot.active, false)
+      return () => {
+        const owner = this.overrideDicts.get(ns)?.get(targetKey)
+        if (!owner) return
+        const idx = owner.indexOf(entries)
+        if (idx < 0) return
+        owner.splice(idx, 1)
+        if (owner.length === 0) this.overrideDicts.get(ns)?.delete(targetKey)
+        this.publish(this.snapshot.active, false)
       }
     }
     let locales = this.dicts.get(ns)
@@ -610,9 +651,19 @@ export class LocaleRuntime {
   }
 
   private lookup(ns: string, key: string, chain: readonly LocaleId[]): DictionaryLookupHit | undefined {
+    const overrides = this.overrideDicts.get(ns)
     const locales = this.dicts.get(ns)
     for (const locale of chain) {
-      const dict = locales?.get(localeKey(locale))
+      const normalized = localeKey(locale)
+      const layer = overrides?.get(normalized)
+      if (layer !== undefined) {
+        for (let i = layer.length - 1; i >= 0; i -= 1) {
+          const overrideDict = layer[i]
+          const value = overrideDict !== undefined && Object.hasOwn(overrideDict, key) ? overrideDict[key] : undefined
+          if (value !== undefined) return { locale, value }
+        }
+      }
+      const dict = locales?.get(normalized)
       const value = dict !== undefined && Object.hasOwn(dict, key) ? dict[key] : undefined
       if (value !== undefined) return { locale, value }
     }
@@ -727,9 +778,13 @@ export async function apply(ctx: ClientContext, options?: LocaleDeploymentConfig
     bootstrap = parseLocaleBootstrap(value)
   }
   const host = ctx.configForms.get<LocaleSettings>(LOCALE_SETTINGS_NAMESPACE)
+  // strata(override): pass resolved deployment locale defaults and order into LocaleRuntime
   const locale = new LocaleRuntime(ctx, host, bootstrap, deployment)
-  locale.register(COMMON_NS, { zh, en })
-  locale.register(SETTINGS_NS, { zh: settingsZh, en: settingsEn })
+  for (const [id, label] of [['ja', '日本語'], ['es', 'Español'], ['fr', 'Français'], ['de', 'Deutsch'], ['ru', 'Русский'], ['pt', 'Português']] as const) {
+    ctx.effect(() => locale.addLanguage({ id, label, fallback: 'en' }), `locale: ${id} language`)
+  }
+  ctx.effect(() => locale.register(COMMON_NS, { zh, en, ja, es, fr, de, ru, pt }), 'locale: common dictionaries')
+  ctx.effect(() => locale.register(SETTINGS_NS, { zh: settingsZh, en: settingsEn, ja: settingsJa, es: settingsEs, fr: settingsFr, de: settingsDe, ru: settingsRu, pt: settingsPt }), 'locale: settings dictionaries')
   ctx.provide('locale', locale)
   let awaitingInitialLocale = locale.isAwaitingRequestedLocale()
   let initialLocaleTimer: ReturnType<typeof setTimeout> | undefined

@@ -106,13 +106,40 @@ describe('the new-session chip', () => {
     ] }, undefined, undefined, enabled)
 
     fireEvent.click(screen.getByRole('button'))
-    expect(screen.getAllByRole('menuitem')).toHaveLength(enabled ? 5 : 3)
+    expect(screen.getAllByRole('menuitem')).toHaveLength(enabled ? 5 : 2)
     expect(screen.getByRole('menuitem', { name: /^Standard mode/ })).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: /^mine/ })).toBeTruthy()
     expect(screen.queryByRole('menuitem', { name: /^PTC mode/ }) !== null).toBe(enabled)
     expect(screen.queryByRole('menuitem', { name: /^Minimal mode/ }) !== null).toBe(enabled)
-    fireEvent.click(screen.getByRole('menuitem', { name: /^Creator mode/ }))
-    expect(actions.select).toHaveBeenCalledWith('cordis')
+    expect(screen.queryByRole('menuitem', { name: /^Creator mode/ }) !== null).toBe(enabled)
+    if (enabled) {
+      fireEvent.click(screen.getByRole('menuitem', { name: /^Creator mode/ }))
+      expect(actions.select).toHaveBeenCalledWith('cordis')
+    }
+  })
+
+  it.each([false, true])('filters the Strata 4+2 lineup cleanly in the new-session chip with Developer tools %s', (enabled) => {
+    const strataOptions = [
+      { id: 'strata-developer' },
+      { id: 'standard' },
+      { id: 'strata-analyst' },
+      { id: 'strata-designer' },
+      { id: 'ptc' },
+      { id: 'cordis' },
+    ]
+    renderSeat({ current: 'strata-developer', options: strataOptions }, undefined, undefined, enabled)
+
+    fireEvent.click(screen.getByRole('button'))
+    const items = screen.getAllByRole('menuitem')
+    const expectedCount = enabled ? 6 : 4
+    expect(items).toHaveLength(expectedCount)
+    expect(screen.getByRole('menuitem', { name: /^Strata Developer/ })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: /^Standard mode/ })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: /^Strata Analyst/ })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: /^Strata Designer/ })).toBeTruthy()
+    expect(screen.queryByRole('menuitem', { name: /^StrataHarness/ })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: /^PTC mode/ }) !== null).toBe(enabled)
+    expect(screen.queryByRole('menuitem', { name: /^Creator mode/ }) !== null).toBe(enabled)
   })
 
   it('keeps a named custom preset that overrides a development preset id', () => {
@@ -198,6 +225,15 @@ describe('the new-session chip', () => {
     renderSeat({ current: 'mine' })
 
     expect(screen.getByRole('button').textContent).toContain('mine')
+  })
+
+  it('resolves a staged legacy strata preset id to the Strata Developer display label', () => {
+    renderSeat({
+      current: 'strata',
+      options: [{ id: 'strata-developer' }, { id: 'standard' }],
+    })
+
+    expect(screen.getByRole('button').textContent).toContain(en.presetStrataDeveloperName)
   })
 
   it('shows the staged id until a stale roster contains it', () => {
@@ -392,6 +428,16 @@ describe('the session-header label', () => {
     // A control here would promise a switch the host refuses outright.
     expect(screen.queryByRole('button')).toBeNull()
     expect(screen.getByTitle(en.presetStandardDescription).textContent).toBe(en.presetStandardName)
+  })
+
+  it('resolves legacy strata session presets to the localized Strata Developer display label', async () => {
+    const { load } = renderLabel(
+      { blank: false, projectionValues: { agentPreset: 'strata' } },
+      { options: [{ id: 'strata-developer' }, { id: 'standard' }] },
+    )
+
+    await waitFor(() => { expect(load).toHaveBeenCalledTimes(1) })
+    expect(screen.getByTitle(en.presetStrataDeveloperDescription).textContent).toBe(en.presetStrataDeveloperName)
   })
 
   it('falls back to the id, and to the generic hint, when metadata is absent', () => {

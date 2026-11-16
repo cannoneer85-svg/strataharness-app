@@ -4,78 +4,31 @@ import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DesktopHostProcess } from '../src/host-process.ts'
-import { DesktopProjectManager } from '../src/project-manager.ts'
-import { resolveDesktopPaths } from '../src/paths.ts'
 import { connectDesktopWelcome, type DesktopWelcomeBackend } from '../src/welcome-backend.ts'
-import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
-import { prepareDevelopmentProject } from '../scripts/development-project.ts'
+import { authenticateWebHost } from '../src/web-document.ts'
+import { builtHost, prepareDesktopHome } from './harness.ts'
 
-const repository = fileURLToPath(new URL('../../../', import.meta.url))
-const builtHost = join(repository, 'apps/desktop-host/lib/index.js')
 afterEach(() => { vi.unstubAllEnvs() })
-
-function version(path: string): string {
-  return (JSON.parse(readFileSync(path, 'utf8')) as { version: string }).version
-}
 
 describe.skipIf(!existsSync(builtHost))('built Desktop welcome flow', () => {
   it('persists explicit API keys and reports disabled cloud account/analytics cleanly across Host restarts', async () => {
-    vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3')
     const root = mkdtempSync(join(tmpdir(), 'dsh-desktop-welcome-'))
     let host: DesktopHostProcess | undefined
     try {
-      for (const name of Object.keys(process.env)) {
-        if (/KEY|TOKEN|SECRET|PASSWORD/u.test(name)) vi.stubEnv(name, undefined)
-      }
-      const home = join(root, 'home')
-      mkdirSync(home)
-      vi.stubEnv('DSH_HOME', home)
-      vi.stubEnv('DSH_TELEMETRY_MODE', 'DISABLED')
-      const project = prepareDevelopmentProject({
-        projectDir: join(root, 'project'),
-        cliDir: join(repository, 'apps/cli'),
-        hostDir: join(repository, 'apps/desktop-host'),
-        dependencyDir: join(repository, 'node_modules/.pnpm/node_modules'),
-        release: {
-          schemaVersion: 1,
-          version: version(join(repository, 'apps/desktop/package.json')),
-          pnpmVersion: version(join(repository, 'apps/desktop/node_modules/pnpm/package.json')),
-          nodeVersion: process.versions.node,
-          hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION,
-        },
-        // This suite assembles a synthetic project on hosts that prepare no Desktop target, and
-        // nothing it exercises compares the descriptor's platform/arch outside packaging.
-        target: 'mac-x64',
-      })
-      cpSync(join(repository, 'packages/skill/skill-office/assets'), join(root, 'runtime/office-skills'), { recursive: true })
+      const { home, project, paths } = await prepareDesktopHome(root)
       const nodeBin = join(root, 'runtime/primary-runtime/dependencies/node/bin')
       mkdirSync(nodeBin, { recursive: true })
       cpSync(process.execPath, join(nodeBin, process.platform === 'win32' ? 'node.exe' : 'node'))
-      const paths = resolveDesktopPaths(home)
-      const manager = new DesktopProjectManager(paths, {
-        dsh: project,
-      })
-      await manager.applyRelease()
       writeFileSync(join(paths.profile, 'cordis.patch.yml'), '- id: webserver\n  config:\n    host: 127.0.0.1\n    port: 0\n')
       let backend: DesktopWelcomeBackend
       const restart = async (): Promise<void> => {
         await host?.stop()
-        host = new DesktopHostProcess(process.execPath, project, paths.profile)
+        host = new DesktopHostProcess(process.execPath, project, paths.profile, undefined,
+          process.env, undefined, join(root, 'runtime', 'primary-runtime'))
         const { url } = await host.start()
-        let cookie = ''
-        const send: typeof fetch = async (input, init) => {
-          const headers = new Headers(init?.headers)
-          if (cookie !== '') headers.set('cookie', cookie)
-          const response = await fetch(input, { ...init, headers, redirect: 'manual' })
-          if (response.status !== 303) return response
-          cookie = response.headers.getSetCookie().map(value => value.split(';')[0]).join('; ')
-          await response.body?.cancel()
-          return fetch(new URL(response.headers.get('location')!, url), { headers: { cookie } })
-        }
-        backend = await connectDesktopWelcome(url, send, () => Promise.resolve(cookie))
+        backend = connectDesktopWelcome(url, await authenticateWebHost(url))
       }
       const status = async () => backend.read()
       const fingerprint = (): string => createHash('sha256')
@@ -104,6 +57,11 @@ describe.skipIf(!existsSync(builtHost))('built Desktop welcome flow', () => {
       expect(await status()).toMatchObject({ loggedIn: false, hasApiKey: true, localePreference: 'zh' })
       await restart()
       expect(await status()).toMatchObject({ loggedIn: false, hasApiKey: true })
+      // A handle left open after acknowledged teardown must not fail the update handoff.
+      vi.stubEnv('NODE_OPTIONS', `--import=data:text/javascript,${encodeURIComponent(
+        "process.on('message', message => { if (message?.type === 'shutdown') setInterval(() => {}, 1000) })")}`)
+      await restart()
+      await host!.stop(true)
     } finally {
       await host?.stop()
       rmSync(root, { recursive: true, force: true })

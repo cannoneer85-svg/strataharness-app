@@ -79,7 +79,10 @@ body {
 .welcome {
   display: grid;
   flex: 1;
+  width: 100%;
+  min-width: 0;
   min-height: 0;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 40px minmax(0, 1fr) 104px;
   justify-items: center;
   align-items: center;
@@ -97,36 +100,55 @@ body {
   display: block;
   flex: none;
   width: 100%;
+  max-width: 472px;
   height: 40px;
+  object-fit: contain;
   user-select: none;
   -webkit-user-drag: none;
 }
 
 .tagline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 100%;
   margin: 0;
   color: var(--dsw-alias-label-secondary);
-  font-size: 24px;
+  font-size: clamp(20px, 3.8vw, 24px);
   font-weight: 300;
-  line-height: 40px;
+  line-height: 1.35;
   text-align: center;
-  white-space: nowrap;
+  white-space: normal;
+  text-wrap: balance;
+  overflow-wrap: break-word;
 }
 
-.tagline h1,
+.tagline h1 {
+  margin: 0;
+  max-width: 100%;
+  font: inherit;
+}
+
 .tagline p {
   margin: 0;
-  font: inherit;
+  max-width: 420px;
+  font-size: clamp(14px, 2.5vw, 16px);
+  font-weight: 400;
+  line-height: 1.45;
 }
 
 .tagline em {
   color: var(--dsw-alias-label-primary);
   font-family: var(--dsw-font-family-brand);
-  font-size: 26px;
+  font-size: clamp(21px, 4vw, 26px);
   font-style: normal;
   font-weight: 500;
 }
 
-:lang(en) .tagline em {
+:lang(en) .tagline em,
+:lang(ru) .tagline em {
   font-size: inherit;
 }
 
@@ -139,14 +161,14 @@ body {
   flex: none;
   flex-direction: column;
   gap: 16px;
-  width: 240px;
+  width: min(240px, 100%);
 }
 
 .actions button {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 44px;
+  min-height: 44px;
   padding: 8px 16px;
   border: 1px solid transparent;
   border-radius: 10px;
@@ -154,6 +176,7 @@ body {
   font-size: 14px;
   font-weight: 500;
   line-height: 22px;
+  text-align: center;
   opacity: 1;
   app-region: no-drag;
   cursor: pointer;
@@ -234,7 +257,7 @@ body {
   flex-direction: column;
   align-items: center;
   gap: 40px;
-  width: 440px;
+  width: min(440px, 100%);
 }
 
 .key-heading {
@@ -323,7 +346,7 @@ body {
 .auth-waiting .copy-link {
   margin-top: 20px;
   padding: 0;
-  width: 240px;
+  width: min(240px, 100%);
   min-height: 17px;
   border: 0;
   border-radius: 0;

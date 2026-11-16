@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { createElectronBuilderConfig } from '../scripts/electron-builder-config.mjs'
+import { readInstallerLocales, renderInstallerStrings } from '../scripts/installer-locales.mjs'
 import { STRATA_NSIS_INSTALLER_LANGUAGES } from '../scripts/strata-desktop-config.mjs'
 import {
   desktopUpdateReadyConfirmation,
@@ -15,10 +16,21 @@ import {
 } from '../src/locale.ts'
 
 describe('desktop locale dictionaries', () => {
-  it('ships the identical 167-key set across Russian, English, and Chinese and serves Russian HTML shell lang tags', () => {
-    expect(Object.keys(en)).toHaveLength(167)
-    expect(Object.keys(ru)).toEqual(Object.keys(en))
-    expect(Object.keys(zh)).toEqual(Object.keys(en))
+  it('uses the same concise Chinese configuration error in the toast and details', () => {
+    for (const message of [zh.updateConfigurationRead, zh.updateConfigurationFormat, zh.updateConfigurationChannel]) {
+      expect(message).toBe('配置文件异常，更新已暂停')
+    }
+  })
+
+  it('ships the identical 191-key set across Russian, English, and Chinese and serves Russian HTML shell lang tags', () => {
+    expect(Object.keys(en)).toHaveLength(191)
+    for (const [id, messages] of [['ru', ru], ['zh-CN', zh]] as const) {
+      expect(Object.keys(messages), id).toEqual(Object.keys(en))
+      for (const key of Object.keys(en) as (keyof typeof en)[]) {
+        const placeholders = (text: string): string[] => (text.match(/\{\w+\}/gu) ?? []).sort()
+        expect(placeholders(messages[key]), `${id}.${key}`).toEqual(placeholders(en[key]))
+      }
+    }
     expect(ru.application).toBe('Приложение')
     expect(ru.edit).toBe('Правка')
     expect(ru.aboutMenu).toBe('О программе StrataHarness')
@@ -79,7 +91,7 @@ describe('desktop locale dictionaries', () => {
     expect(resolveDesktopStartupLocale('ja-JP', ['zh-CN'])).toEqual({ id: 'ru', messages: ru })
   })
 
-  it('configures Russian-first NSIS installerLanguages, macOS CFBundleLocalizations, and 100% strings.nsh parity', () => {
+  it('configures Russian-first NSIS installerLanguages, macOS CFBundleLocalizations, and 100% installer strings parity', () => {
     expect(STRATA_NSIS_INSTALLER_LANGUAGES).toEqual(['ru_RU', 'en_US', 'zh_CN'])
 
     const config = createElectronBuilderConfig({
@@ -91,9 +103,8 @@ describe('desktop locale dictionaries', () => {
     expect(config.nsis.installerLanguages).toEqual(['ru_RU', 'en_US', 'zh_CN'])
     expect(config.mac.extendInfo.CFBundleLocalizations).toEqual(['ru', 'en', 'zh_CN'])
 
-    const stringsPath = resolve(import.meta.dirname, '..', 'installer', 'strings.nsh')
-    const stringsSource = readFileSync(stringsPath, 'utf8')
-    expect(stringsSource).not.toContain('!ifdef LANG_RUSSIAN')
+    const stringsSource = renderInstallerStrings(readInstallerLocales())
+    expect(stringsSource).toContain('!ifdef LANG_RUSSIAN\n')
 
     const keysByLanguage = new Map<string, string[]>([
       ['ENGLISH', []],

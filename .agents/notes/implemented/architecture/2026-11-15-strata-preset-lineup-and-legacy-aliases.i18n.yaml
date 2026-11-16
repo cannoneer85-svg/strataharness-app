@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-11-15-strata-preset-lineup-and-legacy-aliases.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-11-15-strata-preset-lineup-and-legacy-aliases.md
+/agent-note-strata-role-preset-lineup-non-ceremonial-standard-mode-and-legacy-preset-id-aliases:
+  en: 4b7f7ec0c7244056
+  zh: 6fbc50b694b685bf
+/agent-note-strata-role-preset-lineup-non-ceremonial-standard-mode-and-legacy-preset-id-aliases/problem:
+  en: 9043e8d5eb73b4e8
+  zh: 28052f07e3248a1f
+/agent-note-strata-role-preset-lineup-non-ceremonial-standard-mode-and-legacy-preset-id-aliases/decision:
+  en: 9027283d9791b72a
+  zh: 5a485ae577038cf9
+/agent-note-strata-role-preset-lineup-non-ceremonial-standard-mode-and-legacy-preset-id-aliases/alternatives-considered:
+  en: d0eee6b3147d16ca
+  zh: c2622e7174678732
+/agent-note-strata-role-preset-lineup-non-ceremonial-standard-mode-and-legacy-preset-id-aliases/consequences:
+  en: 41051188474a9a67
+  zh: 2b6a1e1a85979a6c

@@ -38,16 +38,17 @@ function createManifestFixture(manifest: unknown): string {
 }
 
 describe('StrataHarness dual-track product manifest and SemVer resolution', () => {
-  it('declares independent product version 1.0.0 in strata-product.json and @strata/* while keeping DSH engine manifests at 0.2.1-rc.4', () => {
+  it('declares independent product version 1.1.0 in strata-product.json and @strata/* while keeping DSH engine manifests at 0.2.2-rc.3', () => {
     const { readStrataProductManifest } = strataDesktopConfig
     expect(readStrataProductManifest).toBeTypeOf('function')
 
     const productManifest = readStrataProductManifest(REPOSITORY_ROOT)
     expect(productManifest).toEqual({
       productName: 'StrataHarness',
-      productVersion: '1.0.0',
-      upstreamBaseTag: 'dsh-v0.2.1-rc.4',
+      productVersion: '1.1.0',
+      upstreamBaseTag: 'dsh-v0.2.2-rc.3',
       upstreamRepository: 'https://github.com/deepseek-ai/deepseek-harness.git',
+      releaseRepository: 'https://github.com/cannoneer85-svg/strataharness-app.git',
     })
 
     const localeRu = JSON.parse(
@@ -59,14 +60,14 @@ describe('StrataHarness dual-track product manifest and SemVer resolution', () =
     const uiBrand = JSON.parse(
       readFileSync(join(REPOSITORY_ROOT, 'packages', 'strata', 'ui-brand', 'package.json'), 'utf8'),
     ) as { version: string }
-    expect(localeRu.version).toBe('1.0.0')
-    expect(productBundle.version).toBe('1.0.0')
-    expect(uiBrand.version).toBe('1.0.0')
+    expect(localeRu.version).toBe('1.1.0')
+    expect(productBundle.version).toBe('1.1.0')
+    expect(uiBrand.version).toBe('1.1.0')
 
     const rootPackage = JSON.parse(readFileSync(join(REPOSITORY_ROOT, 'package.json'), 'utf8')) as { version: string }
     const desktopPackage = JSON.parse(readFileSync(join(APP_ROOT, 'package.json'), 'utf8')) as { version: string }
-    expect(rootPackage.version).toBe('0.2.1-rc.4')
-    expect(desktopPackage.version).toBe('0.2.1-rc.4')
+    expect(rootPackage.version).toBe('0.2.2-rc.3')
+    expect(desktopPackage.version).toBe('0.2.2-rc.3')
   })
 
   it('resolves productVersion from strata-product.json, supports trimmed STRATA_PRODUCT_VERSION overrides, and rejects invalid SemVer', () => {
@@ -74,9 +75,9 @@ describe('StrataHarness dual-track product manifest and SemVer resolution', () =
     expect(resolveStrataProductVersion).toBeTypeOf('function')
     expect(readStrataProductManifest).toBeTypeOf('function')
 
-    expect(resolveStrataProductVersion({}, REPOSITORY_ROOT)).toBe('1.0.0')
-    expect(resolveStrataProductVersion({ STRATA_PRODUCT_VERSION: '   ' }, REPOSITORY_ROOT)).toBe('1.0.0')
-    expect(resolveStrataProductVersion({ STRATA_PRODUCT_VERSION: ' 1.0.1 ' }, REPOSITORY_ROOT)).toBe('1.0.1')
+    expect(resolveStrataProductVersion({}, REPOSITORY_ROOT)).toBe('1.1.0')
+    expect(resolveStrataProductVersion({ STRATA_PRODUCT_VERSION: '   ' }, REPOSITORY_ROOT)).toBe('1.1.0')
+    expect(resolveStrataProductVersion({ STRATA_PRODUCT_VERSION: ' 1.0.3 ' }, REPOSITORY_ROOT)).toBe('1.0.3')
     expect(resolveStrataProductVersion({ STRATA_PRODUCT_VERSION: '1.1.0-rc.1' }, REPOSITORY_ROOT)).toBe('1.1.0-rc.1')
 
     for (const invalid of ['v1.0.0', '1.0', '01.0.0', '1.0.0+build.1', 'not-a-version']) {
@@ -84,22 +85,24 @@ describe('StrataHarness dual-track product manifest and SemVer resolution', () =
       const invalidRoot = createManifestFixture({
         productName: 'StrataHarness',
         productVersion: invalid,
-        upstreamBaseTag: 'dsh-v0.2.1-rc.4',
+        upstreamBaseTag: 'dsh-v0.2.2-rc.3',
         upstreamRepository: 'https://github.com/deepseek-ai/deepseek-harness.git',
+        releaseRepository: 'https://github.com/cannoneer85-svg/strataharness-app.git',
       })
       expect(() => readStrataProductManifest(invalidRoot)).toThrow(/SemVer|build metadata/iu)
     }
 
     const badTagRoot = createManifestFixture({
       productName: 'StrataHarness',
-      productVersion: '1.0.0',
-      upstreamBaseTag: 'v0.2.1-rc.4',
+      productVersion: '1.1.0',
+      upstreamBaseTag: 'v0.2.2-rc.3',
       upstreamRepository: 'https://github.com/deepseek-ai/deepseek-harness.git',
+      releaseRepository: 'https://github.com/cannoneer85-svg/strataharness-app.git',
     })
     expect(() => readStrataProductManifest(badTagRoot)).toThrow(/upstreamBaseTag/u)
   })
 
-  it('wires productVersion 1.0.0 and dshEngineVersion 0.2.1-rc.4 into electron-builder extraMetadata without mutating apps/desktop/package.json', () => {
+  it('wires productVersion 1.1.0 and dshEngineVersion 0.2.2-rc.3 into electron-builder extraMetadata without mutating apps/desktop/package.json', () => {
     const baseEnv: NodeJS.ProcessEnv = {
       DSH_DESKTOP_APP_ID: 'com.nikl.strataharness',
       DSH_DESKTOP_TARGET_PLATFORM: 'win32',
@@ -110,33 +113,33 @@ describe('StrataHarness dual-track product manifest and SemVer resolution', () =
     const defaultConfig = createElectronBuilderConfig(baseEnv, 'win32', 'x64')
     expect(defaultConfig.extraMetadata).toMatchObject({
       name: '@strata/desktop',
-      version: '1.0.0',
-      dshEngineVersion: '0.2.1-rc.4',
+      version: '1.1.0',
+      dshEngineVersion: '0.2.2-rc.3',
     })
     expect(defaultConfig.artifactName).toBe('strataharness-${version}-${os}-${arch}-unsigned.${ext}')
 
     const overrideConfig = createElectronBuilderConfig(
-      { ...baseEnv, STRATA_PRODUCT_VERSION: '1.0.1' },
+      { ...baseEnv, STRATA_PRODUCT_VERSION: '1.0.3' },
       'win32',
       'x64',
     )
     expect(overrideConfig.extraMetadata).toMatchObject({
-      version: '1.0.1',
-      dshEngineVersion: '0.2.1-rc.4',
+      version: '1.0.3',
+      dshEngineVersion: '0.2.2-rc.3',
     })
 
     const buildVersionConfig = createElectronBuilderConfig(
-      { ...baseEnv, DSH_DESKTOP_BUILD_VERSION: '1.0.0-test.20261029.1' },
+      { ...baseEnv, DSH_DESKTOP_BUILD_VERSION: '1.1.0-test.20261029.1' },
       'win32',
       'x64',
     )
     expect(buildVersionConfig.extraMetadata).toMatchObject({
-      version: '1.0.0-test.20261029.1',
-      dshEngineVersion: '0.2.1-rc.4',
+      version: '1.1.0-test.20261029.1',
+      dshEngineVersion: '0.2.2-rc.3',
     })
 
     const desktopPackage = JSON.parse(readFileSync(join(APP_ROOT, 'package.json'), 'utf8')) as { version: string }
-    expect(desktopPackage.version).toBe('0.2.1-rc.4')
+    expect(desktopPackage.version).toBe('0.2.2-rc.3')
   }, 30_000)
 
   it('validates upload plans against strata-product.json productVersion when workspace package.json holds the DSH engine version', async () => {
@@ -156,6 +159,7 @@ describe('StrataHarness dual-track product manifest and SemVer resolution', () =
         productVersion: '1.0.0',
         upstreamBaseTag: 'dsh-v0.2.1-rc.4',
         upstreamRepository: 'https://github.com/deepseek-ai/deepseek-harness.git',
+        releaseRepository: 'https://github.com/cannoneer85-svg/strataharness-app.git',
       }, null, 2)}\n`,
     )
 
@@ -176,7 +180,7 @@ describe('StrataHarness dual-track product manifest and SemVer resolution', () =
       join(artifactsRoot, 'win-x64-release.json'),
       `${JSON.stringify({
         schemaVersion: 1,
-        channel: 'latest',
+        channel: 'stable',
         target: 'win-x64',
         version: '1.0.0',
         environment: 'production',
@@ -184,7 +188,7 @@ describe('StrataHarness dual-track product manifest and SemVer resolution', () =
       })}\n`,
     )
     writeFileSync(
-      join(artifactsRoot, 'latest.yml'),
+      join(artifactsRoot, 'stable.yml'),
       `${JSON.stringify({
         version: '1.0.0',
         path: exeName,
@@ -193,7 +197,7 @@ describe('StrataHarness dual-track product manifest and SemVer resolution', () =
     )
 
     const environment: NodeJS.ProcessEnv = {
-      DSH_DESKTOP_UPDATE_CHANNEL: 'latest',
+      DSH_DESKTOP_UPDATE_CHANNEL: 'stable',
       DSH_DESKTOP_AUTO_UPDATE_ENV: 'production',
       DOWNLOAD_PROD_ORIGIN: 'https://updates.example.com',
       DOWNLOAD_PROD_COS_BUCKET: 'strata-updates-1250000000',

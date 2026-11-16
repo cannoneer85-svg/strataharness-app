@@ -1,3 +1,4 @@
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Group from '@deepseek-ai/cordis-plugin-group'
@@ -16,7 +17,7 @@ export const liveRegistries = new WeakMap<Context, Awaited<ReturnType<typeof liv
 
 export const plugin = (name: string): string => new URL(`./fixtures/plugins/${name}.js`, import.meta.url).href
 export const contribution = (tool: string): PresetDefinition => ({ id: tool, plugins: [{ name: plugin('contribute'), config: { tool } }] })
-export async function harness(options: { live?: boolean } = {}): Promise<Context> {
+export async function harness(options: { live?: boolean; default?: string; aliases?: Record<string, string> } = {}): Promise<Context> {
   const ctx = new Context()
   ctx.baseUrl = new URL('./fixtures/', import.meta.url).href
   await ctx.plugin(Loader)
@@ -26,10 +27,15 @@ export async function harness(options: { live?: boolean } = {}): Promise<Context
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt, { personaPrefix: '' })
   await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
-  if (options.live) liveRegistries.set(ctx, await liveConfig(ctx, AgentPresets, { default: 'standard' }))
-  else await ctx.plugin(AgentPresets, { default: 'standard' })
+  const config = {
+    default: options.default ?? 'standard',
+    ...(options.aliases === undefined ? {} : { aliases: options.aliases }),
+  }
+  if (options.live) liveRegistries.set(ctx, await liveConfig(ctx, AgentPresets, config))
+  else await ctx.plugin(AgentPresets, config)
   return ctx
 }
 export async function declare(ctx: Context, config: PresetDefinition) {

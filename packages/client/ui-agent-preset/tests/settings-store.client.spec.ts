@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { RemoteErrorCode } from '@deepseek-ai/dsh-api-remotes/client'
+import { requiresCodingTools } from '../src/client/settings-store.ts'
 import { RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -509,6 +510,20 @@ describe('the new-session chip controller', () => {
     expect(controller.store.getSnapshot()).toMatchObject({ error: 'host down', options: [] })
   })
 
+})
+
+describe('requiresCodingTools', () => {
+  it('gates ptc, minimal, and cordis while keeping base presets and named overrides visible', () => {
+    expect(requiresCodingTools({ id: 'ptc' })).toBe(true)
+    expect(requiresCodingTools({ id: 'minimal' })).toBe(true)
+    expect(requiresCodingTools({ id: 'cordis' })).toBe(true)
+    expect(requiresCodingTools({ id: 'strata-developer' })).toBe(false)
+    expect(requiresCodingTools({ id: 'standard' })).toBe(false)
+    expect(requiresCodingTools({ id: 'strata-analyst' })).toBe(false)
+    expect(requiresCodingTools({ id: 'strata-designer' })).toBe(false)
+    expect(requiresCodingTools({ id: 'cordis', name: 'Custom Creator' })).toBe(false)
+    expect(requiresCodingTools(undefined)).toBe(false)
+  })
 })
 
 function remoteRoster(defaultId: string) {

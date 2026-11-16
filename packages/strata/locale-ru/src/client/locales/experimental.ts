@@ -1,10 +1,10 @@
 /**
- * Typed Russian dictionaries for experimental client UI surfaces: Agent Teams,
- * Claude Code Mods band, Chain-of-Thought Reasoning Translation, Voice Input,
+ * Typed Russian dictionaries for experimental client UI surfaces and Agent Teams:
+ * Agent Teams, Claude Code Mods band, Chain-of-Thought Reasoning Translation, Voice Input,
  * the NodeJS Inspector bottom panel, and the Session Log Inspector tab.
  */
+import type {} from '@deepseek-ai/dsh-client-ui-agent-team/client'
 import type { LocaleDictOf } from '@deepseek-ai/dsh-client-ui-slots'
-import type {} from '@deepseek-ai/dsh-experimental-client-ui-agent-team/client'
 import type {} from '@deepseek-ai/dsh-experimental-client-ui-claude-code-mods/client'
 import type {} from '@deepseek-ai/dsh-experimental-client-ui-cot-translation/client'
 import type {} from '@deepseek-ai/dsh-experimental-client-ui-voice-input/src/client/locales.ts'
@@ -18,26 +18,31 @@ export const ruAgentTeam = {
   unavailable: 'Команда недоступна',
   failure: 'Некорректная сохранённая запись команды: {message}',
   empty: 'Общих задач пока нет. Создайте их через диалог.',
-  roster: 'Участники',
   tasks: 'Общие задачи',
-  model: 'Модель',
-  open: 'Открыть диалог участника',
-  current: 'Текущий диалог',
   owner: 'Ответственный',
   unowned: 'Не назначен',
-  blockedBy: 'Зависит от',
-  writeScopes: 'Области записи',
-  ready: 'Готово к старту',
   blocked: 'Заблокировано зависимостями',
-  'task.expand': 'Развернуть',
-  'task.collapse': 'Свернуть',
-  'memberStatus.running': 'Выполняется',
-  'memberStatus.inactive': 'Неактивен',
-  'memberStatus.provisioning': 'Подготовка',
-  'memberStatus.failed': 'Ошибка',
   'status.pending': 'В ожидании',
   'status.in_progress': 'В работе',
   'status.completed': 'Выполнено',
+  'progress.completed': '{count} завершено',
+  'progress.active': '{count} в работе',
+  'progress.pending': '{count} ожидает',
+  'command.title': 'Командная работа агентов',
+  'command.running': 'Выполняется',
+  'command.done': 'Завершено',
+  'command.failed': 'Ошибка',
+  'command.failedReason': 'Ошибка: {reason}',
+  'mode.label': 'Включить командную работу агентов',
+  'mode.infoLabel': 'О командной работе агентов',
+  'mode.description': 'Координируйте работу и прогресс нескольких агентов с помощью общей доски задач — это повышает качество решения сложных задач при пропорционально большем расходе токенов.',
+  'mode.failed': 'Не удалось подтвердить сохранение настройки командной работы агентов. Повторите попытку: {message}',
+  'disable.title': 'Отключить командную работу агентов?',
+  'disable.description': 'Отключение командной работы агентов по ходу сессии останавливает использование инструментов общих задач и инструкций по координации команды.',
+  'disable.warning': 'Отключение может повлиять на переиспользование кэша, увеличить дальнейший расход токенов и затраты, а также отразиться на совместной работе над текущей задачей.',
+  'disable.cancel': 'Отмена',
+  'disable.confirm': 'Отключить',
+  'disable.close': 'Закрыть',
 } satisfies LocaleDictOf<'agent-team'>
 
 /** Russian dictionary for the `claude-code-mods` experimental mod status band namespace. */
@@ -178,6 +183,11 @@ export const ruVoiceInput = {
   yue: 'Кантонский',
   ja: 'Японский',
   ko: 'Корейский',
+  es: 'Испанский',
+  fr: 'Французский',
+  de: 'Немецкий',
+  ru: 'Русский',
+  pt: 'Португальский',
   start: 'Начать запись',
   stop: 'Остановить и распознать',
   cancel: 'Отмена',

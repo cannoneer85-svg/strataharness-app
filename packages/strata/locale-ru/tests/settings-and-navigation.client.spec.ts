@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import {
@@ -13,6 +13,10 @@ import {
 } from '@deepseek-ai/dsh-client-locale/client'
 import { LOCALE_CONFIG_GLOBAL } from '@deepseek-ai/dsh-client-locale/src/locale-settings.ts'
 import {
+  en as enAccountNotifications,
+  zh as zhAccountNotifications,
+} from '@deepseek-ai/dsh-client-ui-account-notifications/src/client/locales.ts'
+import {
   en as enAgentPreset,
   zh as zhAgentPreset,
 } from '@deepseek-ai/dsh-client-ui-agent-preset/src/client/locales.ts'
@@ -20,14 +24,19 @@ import {
   en as enCommand,
   zh as zhCommand,
 } from '@deepseek-ai/dsh-client-ui-commands/src/client/locales.ts'
-import {
-  en as enModelLabel1017,
-  zh as zhModelLabel1017,
-} from '@deepseek-ai/dsh-client-ui-deepseek-model-label-1017/src/client/locales.ts'
+import { dictionaries as contextMenuDictionaries } from '@deepseek-ai/dsh-client-ui-context-menu/src/client/locales.ts'
 import {
   en as enEntryCustomization,
   zh as zhEntryCustomization,
 } from '@deepseek-ai/dsh-client-ui-entry-customization/src/client/locales.ts'
+import {
+  en as enFileActions,
+  zh as zhFileActions,
+} from '@deepseek-ai/dsh-client-ui-file-actions/src/client/locales.ts'
+import {
+  en as enFileDrag,
+  zh as zhFileDrag,
+} from '@deepseek-ai/dsh-client-ui-file-drag/src/client/locales.ts'
 import {
   en as enShortcutsLayout,
   zh as zhShortcutsLayout,
@@ -118,6 +127,10 @@ import {
   en as enWorkspace,
   zh as zhWorkspace,
 } from '@deepseek-ai/dsh-client-ui-workspace/src/client/locales.ts'
+import {
+  en as enMessageQuotes,
+  zh as zhMessageQuotes,
+} from '@deepseek-ai/dsh-message-quotes/src/client/locales.ts'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { apply as settingsApply, inject as settingsInject } from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -125,7 +138,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply, inject } from '../src/client/index.ts'
 import { ruSettingsAgentPreset } from '../src/client/locales/agent-preset.ts'
 import {
-  ruDeepseekModelLabel1017,
+  ruAccountNotifications,
+  ruContextMenu,
+  ruFileActions,
+  ruFileDrag,
+  ruMessageQuotes,
+} from '../src/client/locales/client-ui.ts'
+import {
   ruModel,
   ruSettingsModels,
 } from '../src/client/locales/models.ts'
@@ -211,7 +230,11 @@ const NAMESPACE_SPECS: readonly NamespaceSpec[] = [
   { ns: 'open-in-app', ru: ruOpenInApp, en: enOpenInApp, zh: zhOpenInApp },
   { ns: 'permission.access', ru: ruPermissionAccess, en: enPermissionAccess, zh: zhPermissionAccess },
   { ns: 'model', ru: ruModel, en: enModel, zh: zhModel },
-  { ns: 'deepseek-model-label-1017', ru: ruDeepseekModelLabel1017, en: enModelLabel1017, zh: zhModelLabel1017 },
+  { ns: 'account.notifications', ru: ruAccountNotifications, en: enAccountNotifications, zh: zhAccountNotifications },
+  { ns: 'contextMenu', ru: ruContextMenu, en: contextMenuDictionaries.en, zh: contextMenuDictionaries.zh },
+  { ns: 'fileActions', ru: ruFileActions, en: enFileActions, zh: zhFileActions },
+  { ns: 'fileDrag', ru: ruFileDrag, en: enFileDrag, zh: zhFileDrag },
+  { ns: 'messageQuotes', ru: ruMessageQuotes, en: enMessageQuotes, zh: zhMessageQuotes },
 ]
 
 function extractPlaceholders(template: string): string[] {
@@ -273,7 +296,8 @@ describe('Settings, navigation, plugin management, and Strata presets in @strata
     }
   })
 
-  it('registers all 28 settings, navigation, and plugin namespaces into ctx.locale and falls back cleanly on unload', async () => {
+  it('registers all 32 settings, navigation, plugin, and client UI namespaces into ctx.locale and falls back cleanly on unload', async () => {
+    expect(NAMESPACE_SPECS).toHaveLength(32)
     const boot = await bootLocaleWithRu()
     try {
       expect(boot.locale.getLocale().active).toBe('ru')
@@ -297,7 +321,7 @@ describe('Settings, navigation, plugin management, and Strata presets in @strata
 
       // Unmount @strata/locale-ru and confirm fallback to English without raw keys.
       await boot.ruFiber.dispose()
-      expect(boot.locale.getLocale().active).toBe('en')
+      expect(boot.locale.getLocale().active).toBe('ru')
       expect(boot.locale.bind('settings')('title')).toBe('Settings')
       expect(boot.locale.bind('sidebar')('session.new')).toBe('New Session')
       expect(boot.locale.bind('settings.plugins')('nav')).toBe('Built-in plugins')
@@ -389,15 +413,23 @@ describe('Settings, navigation, plugin management, and Strata presets in @strata
     }
   })
 
-  it('resolves the four Strata role presets as built-in presets in ru, en, and zh and keeps product-bundle YAML prompts in English', async () => {
+  it('resolves the Strata and built-in presets in ru, en, and zh, shortens inUse, and keeps product-bundle YAML prompts in English', async () => {
     const boot = await bootLocaleWithRu()
     try {
       const tPreset = boot.locale.bind('settings.agentPreset')
+      boot.locale.setLocale('ru')
+      expect(tPreset('inUse')).toBe('По умолчанию')
+
+      expect(isBuiltInPreset({ id: 'strata' })).toBe(true)
+      expect(existsSync(resolve(import.meta.dirname, '..', '..', 'product-bundle', 'presets', 'strata.patch.yml'))).toBe(false)
+
       const roles = [
-        { id: 'strata', name: 'StrataHarness', file: 'strata.patch.yml', promptHeader: 'You are StrataHarness' },
         { id: 'strata-developer', name: 'Strata Developer', file: 'strata-developer.patch.yml', promptHeader: 'You are **Strata Developer**' },
         { id: 'strata-analyst', name: 'Strata Analyst', file: 'strata-analyst.patch.yml', promptHeader: 'You are **Strata Analyst**' },
         { id: 'strata-designer', name: 'Strata Designer', file: 'strata-designer.patch.yml', promptHeader: 'You are **Strata Designer**' },
+        { id: 'standard', name: undefined, file: 'standard.patch.yml', promptHeader: 'You are a coding agent powered by the {{model}} model.' },
+        { id: 'ptc', name: undefined, file: 'ptc.patch.yml', promptHeader: 'You are a coding agent powered by the {{model}} model.' },
+        { id: 'cordis', name: undefined, file: 'cordis.patch.yml', promptHeader: 'You are a coding agent powered by the {{model}} model.' },
       ] as const
 
       for (const role of roles) {
@@ -405,17 +437,17 @@ describe('Settings, navigation, plugin management, and Strata presets in @strata
 
         boot.locale.setLocale('ru')
         const ruCopy = presetDisplayText({ id: role.id }, key => tPreset(key))
-        expect(ruCopy.name).toBe(role.name)
+        if (role.name !== undefined) expect(ruCopy.name).toBe(role.name)
         expect(ruCopy.description).toMatch(/[А-Яа-яЁё]/)
 
         boot.locale.setLocale('en')
         const enCopy = presetDisplayText({ id: role.id }, key => tPreset(key))
-        expect(enCopy.name).toBe(role.name)
+        if (role.name !== undefined) expect(enCopy.name).toBe(role.name)
         expect(enCopy.description).not.toBe(ruCopy.description)
 
         boot.locale.setLocale('zh')
         const zhCopy = presetDisplayText({ id: role.id }, key => tPreset(key))
-        expect(zhCopy.name).toBe(role.name)
+        if (role.name !== undefined) expect(zhCopy.name).toBe(role.name)
         expect(zhCopy.description).not.toBe(enCopy.description)
         expect(zhCopy.description).not.toBe(ruCopy.description)
 

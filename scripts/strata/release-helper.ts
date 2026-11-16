@@ -2002,7 +2002,7 @@ export function runReleaseHelperCli(
           prerelease: parsed.values.prerelease || parseBooleanFlag(env.IS_PRERELEASE),
           githubOutputPath: parsed.values['github-output'] ?? env.GITHUB_OUTPUT,
           stepSummaryPath: parsed.values['step-summary'] ?? env.GITHUB_STEP_SUMMARY,
-          onWarning: message => emitErr(`${message}\n`),
+          onWarning: (message) => { emitErr(`${message}\n`) },
         })
         if (parsed.values.json) {
           emitOut(`${JSON.stringify(result, null, 2)}\n`)
@@ -2057,12 +2057,12 @@ export function runReleaseHelperCli(
           buildVersion,
           targetRef: parsed.values['target-ref'],
           baselineTag: parsed.values.base,
-          onWarning: message => emitErr(`${message}\n`),
+          onWarning: (message) => { emitErr(`${message}\n`) },
         })
         const summary = parsed.values['strict-summary']
           ? validateProductReleaseSummary(repoRoot, buildVersion)
           : readProductReleaseSummary(repoRoot, buildVersion, {
-            onWarning: message => emitErr(`${message}\n`),
+            onWarning: (message) => { emitErr(`${message}\n`) },
           })
 
         if (parsed.values.json) {

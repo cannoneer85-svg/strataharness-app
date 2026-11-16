@@ -16,6 +16,7 @@ import { IconAgentPresetOutlineRegular } from '@deepseek-ai/dsh-client-ui-primit
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry/types'
 import type { AgentPresetSettingsState } from './settings-store.ts'
+import { findPresetOption } from './settings-store.ts'
 import { presetDisplayText } from './locales.ts'
 import css from './AgentPresetLabel.module.css'
 
@@ -57,7 +58,7 @@ export function AgentPresetLabel({
 
   if (preset === undefined) return null
 
-  const option = options.find(entry => entry.id === preset)
+  const option = findPresetOption(options, preset)
   const text = option === undefined ? undefined : presetDisplayText(option, t)
   return (
     <span className={css.label} title={text?.description ?? t('headerHint')}>
