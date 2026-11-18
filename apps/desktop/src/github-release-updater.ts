@@ -1,4 +1,4 @@
-/** GitHub Releases desktop updater with `SHA256SUMS.txt` verification and platform installer handoff. */
+/** GitHub Releases desktop updater via github.com web endpoints, `SHA256SUMS.txt` verification, and platform installer handoff. */
 
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -10,10 +10,14 @@ import { gt, lte, parse, prerelease, rcompare } from 'semver'
 import { parseGitHubReleaseRepository } from './update-channel.ts'
 import { assertIsolatedUpdaterRequestTarget } from './updates/electron-updater/http-executor.ts'
 
+const GITHUB_ORIGIN = 'https://github.com'
 const RELEASE_TAG_PREFIX = 'strata-v'
 const CHECKSUMS_ASSET_NAME = 'SHA256SUMS.txt'
 const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 60_000
 const MAX_HTTP_REDIRECTS = 5
+const MAX_CANDIDATE_ASSET_PROBES = 5
+const MAX_ATOM_FEED_BYTES = 2 * 1024 * 1024
+const MAX_CHECKSUMS_BYTES = 64 * 1024
 
 /** Supported packaged desktop platform-architecture target identifiers. */
 export type GitHubReleasePlatformTarget = 'win-x64' | 'mac-arm64' | 'mac-x64'
@@ -24,19 +28,19 @@ export interface GitHubReleaseAssetDescriptor {
   readonly name: string
   /** HTTPS download URL for the asset. */
   readonly browserDownloadUrl: string
-  /** Optional asset byte length reported by the GitHub Releases API. */
+  /** Optional asset byte length reported by the release metadata. */
   readonly size?: number
 }
 
-/** Validated `strata-v<version>` release entry returned by the GitHub Releases API. */
+/** Validated `strata-v<version>` release entry with verified `SHA256SUMS.txt` asset descriptors. */
 export interface GitHubReleaseCandidate {
   /** Git tag name (`strata-v<version>`). */
   readonly tagName: string
   /** Canonical SemVer version extracted from `tagName`. */
   readonly version: string
-  /** Whether the release is marked as a prerelease on GitHub or carries a SemVer prerelease suffix. */
+  /** Whether the release is a prerelease according to SemVer or Strata release metadata. */
   readonly prerelease: boolean
-  /** Downloadable release assets. */
+  /** Downloadable release assets resolved from `SHA256SUMS.txt`. */
   readonly assets: readonly GitHubReleaseAssetDescriptor[]
 }
 
@@ -108,7 +112,7 @@ export interface GitHubReleaseUpdaterOptions {
   readonly arch?: string
   /** HTTP request inactivity timeout in milliseconds; defaults to `DSH_DESKTOP_UPDATE_HTTP_IDLE_TIMEOUT_MS` or `60_000`. */
   readonly timeoutMs?: number
-  /** Injectable `fetch` implementation for GitHub API and asset requests. */
+  /** Injectable `fetch` implementation for GitHub web release and asset requests. */
   readonly fetch?: typeof globalThis.fetch
   /** Injectable child-process `spawn` implementation for Windows `.exe` installer launch. */
   readonly spawn?: SpawnInstallerProcess
@@ -120,15 +124,22 @@ export interface GitHubReleaseUpdaterOptions {
   readonly tempRootDir?: string
 }
 
+interface GitHubReleaseTagCandidate {
+  readonly tagName: string
+  readonly version: string
+  readonly prerelease: boolean
+}
+
 interface PreparedInstaller {
   readonly version: string
   readonly filePath: string
   readonly tempDir: string
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
+type LatestStableProbeResult =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'fallback-atom' }
+  | { readonly kind: 'tag'; readonly candidate: GitHubReleaseTagCandidate }
 
 function validateIsolatedHttpUrl(rawUrl: string, label: string): string {
   let parsed: URL
@@ -146,6 +157,222 @@ function validateIsolatedHttpUrl(rawUrl: string, label: string): string {
     throw new Error(`desktop update: ${label} must use HTTPS (${parsed.href})`)
   }
   return parsed.href
+}
+
+function resolveIsolatedRedirectUrl(location: string, baseUrl: string, label: string): string {
+  let resolved: URL
+  try {
+    resolved = new URL(location, baseUrl)
+  } catch (_invalidRedirect) {
+    throw new Error(`desktop update: invalid ${label} URL ${JSON.stringify(location)}`)
+  }
+  return validateIsolatedHttpUrl(resolved.href, label)
+}
+
+async function cancelResponseBody(response: Response): Promise<void> {
+  if (response.body === null) return
+  try {
+    await response.body.cancel()
+  } catch (_cancelError) {
+    // Discard unread stream cancellation errors when closing probe responses early.
+  }
+}
+
+async function readBoundedUtf8Text(
+  response: Response,
+  refreshTimer: () => void,
+  maxBytes: number,
+  label: string,
+): Promise<string> {
+  if (response.body !== null) {
+    const reader = response.body.getReader()
+    const chunks: Uint8Array[] = []
+    let totalBytes = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      refreshTimer()
+      if (done) break
+      if (value.byteLength === 0) continue
+      totalBytes += value.byteLength
+      if (totalBytes > maxBytes) {
+        /* v8 ignore next -- best-effort stream cancel after exceeding metadata byte limit */
+        await reader.cancel().catch(() => undefined)
+        throw new Error(`desktop update: ${label} exceeded maximum size (${String(maxBytes)} bytes)`)
+      }
+      chunks.push(value)
+    }
+    return Buffer.concat(chunks).toString('utf8')
+  }
+  const text = await response.text()
+  refreshTimer()
+  if (Buffer.byteLength(text, 'utf8') > maxBytes) {
+    throw new Error(`desktop update: ${label} exceeded maximum size (${String(maxBytes)} bytes)`)
+  }
+  return text
+}
+
+function parseStrataReleaseTag(tagName: string): GitHubReleaseTagCandidate | undefined {
+  if (!tagName.startsWith(RELEASE_TAG_PREFIX)) return undefined
+  const rawVersion = tagName.slice(RELEASE_TAG_PREFIX.length)
+  const parsedVersion = parse(rawVersion, { loose: false })
+  if (parsedVersion === null || parsedVersion.version !== rawVersion || parsedVersion.build.length > 0) {
+    return undefined
+  }
+  return {
+    tagName,
+    version: parsedVersion.version,
+    prerelease: parsedVersion.prerelease.length > 0,
+  }
+}
+
+function isSafeReleaseAssetFileName(fileName: string): boolean {
+  if (fileName === '' || fileName === '.' || fileName === '..') return false
+  if (fileName.includes('/') || fileName.includes('\\')) return false
+  return !/[\u0000-\u001f\u007f]/u.test(fileName)
+}
+
+function stripGitHubRepositoryPrefix(pathname: string, owner: string, repo: string): string | undefined {
+  const firstSlash = pathname.indexOf('/', 1)
+  if (firstSlash === -1) return undefined
+  const secondSlash = pathname.indexOf('/', firstSlash + 1)
+  if (secondSlash === -1) return undefined
+  const pathOwner = pathname.slice(1, firstSlash)
+  const pathRepo = pathname.slice(firstSlash + 1, secondSlash)
+  if (pathOwner.toLowerCase() !== owner.toLowerCase() || pathRepo.toLowerCase() !== repo.toLowerCase()) {
+    return undefined
+  }
+  return pathname.slice(secondSlash)
+}
+
+function parseGitHubReleaseTagPathname(
+  pathname: string,
+  owner: string,
+  repo: string,
+): { readonly kind: 'not-tag' } | { readonly kind: 'invalid-tag' } | { readonly kind: 'tag'; readonly candidate: GitHubReleaseTagCandidate } {
+  const repoPath = stripGitHubRepositoryPrefix(pathname, owner, repo)
+  if (repoPath === undefined) return { kind: 'not-tag' }
+  const tagMatch = /^\/releases\/tag\/([^/?#]+)\/?$/u.exec(repoPath)
+  const rawTag = tagMatch?.[1]
+  if (rawTag === undefined) return { kind: 'not-tag' }
+  let decodedTag: string
+  try {
+    decodedTag = decodeURIComponent(rawTag)
+  } catch (_invalidEncoding) {
+    return { kind: 'invalid-tag' }
+  }
+  const candidate = parseStrataReleaseTag(decodedTag)
+  return candidate === undefined ? { kind: 'invalid-tag' } : { kind: 'tag', candidate }
+}
+
+function classifyLatestReleaseUrl(rawUrl: string, owner: string, repo: string): LatestStableProbeResult | undefined {
+  const parsedUrl = new URL(rawUrl)
+  if (parsedUrl.hostname.toLowerCase() !== 'github.com') return undefined
+
+  const tagResult = parseGitHubReleaseTagPathname(parsedUrl.pathname, owner, repo)
+  if (tagResult.kind === 'tag') {
+    return tagResult.candidate.prerelease ? { kind: 'fallback-atom' } : { kind: 'tag', candidate: tagResult.candidate }
+  }
+  if (tagResult.kind === 'invalid-tag') {
+    return { kind: 'fallback-atom' }
+  }
+
+  const repoPath = stripGitHubRepositoryPrefix(parsedUrl.pathname, owner, repo)
+  if (repoPath !== undefined && /^\/releases\/?$/u.test(repoPath)) {
+    return { kind: 'none' }
+  }
+  return undefined
+}
+
+function parseReleasesAtomCandidates(
+  atomXml: string,
+  owner: string,
+  repo: string,
+  allowPrereleases: boolean,
+): readonly GitHubReleaseTagCandidate[] {
+  if (!/<feed[\s>]/u.test(atomXml)) {
+    throw new Error('desktop update: GitHub Releases Atom feed is invalid XML')
+  }
+
+  const candidates: GitHubReleaseTagCandidate[] = []
+  const seenVersions = new Set<string>()
+  for (const entryMatch of atomXml.matchAll(/<entry\b[^>]*>([\s\S]*?)<\/entry>/gu)) {
+    const entryOpenEnd = entryMatch[0].indexOf('>')
+    const entryBody = entryMatch[0].slice(entryOpenEnd + 1, -'</entry>'.length)
+    const hasPrereleaseMetadata = /(?:&lt;li&gt;|<li>|-\s*)Release Channel:\s*(?:Prerelease|Draft)\b/iu.test(entryBody)
+    const strippedBody = entryBody
+      .replace(/<(?:content|summary)\b[^>]*\/>/gu, '')
+      .replace(/<content\b[^>]*>[\s\S]*?<\/content>/gu, '')
+      .replace(/<summary\b[^>]*>[\s\S]*?<\/summary>/gu, '')
+
+    for (const linkMatch of strippedBody.matchAll(/<link\b[^>]*>/gu)) {
+      const relMatch = /\brel\s*=\s*(?:"([^"]*)"|'([^']*)')/u.exec(linkMatch[0])
+      if (relMatch !== null) {
+        const relValue = relMatch[1] ?? relMatch[2]
+        if (relValue !== 'alternate') continue
+      }
+
+      const hrefMatch = /\bhref\s*=\s*(?:"([^"]+)"|'([^']+)')/u.exec(linkMatch[0])
+      const rawHref = hrefMatch?.[1] ?? hrefMatch?.[2]
+      if (rawHref === undefined) continue
+
+      const decodedHref = rawHref.replaceAll('&amp;', '&')
+      let parsedUrl: URL
+      try {
+        parsedUrl = new URL(decodedHref, GITHUB_ORIGIN)
+      } catch (_invalidUrl) {
+        continue
+      }
+      if (parsedUrl.hostname.toLowerCase() !== 'github.com') continue
+
+      const tagResult = parseGitHubReleaseTagPathname(parsedUrl.pathname, owner, repo)
+      if (tagResult.kind !== 'tag') continue
+      const isPrerelease = tagResult.candidate.prerelease || hasPrereleaseMetadata
+      if (!allowPrereleases && isPrerelease) continue
+      if (seenVersions.has(tagResult.candidate.version)) continue
+
+      seenVersions.add(tagResult.candidate.version)
+      candidates.push({
+        tagName: tagResult.candidate.tagName,
+        version: tagResult.candidate.version,
+        prerelease: isPrerelease,
+      })
+      break
+    }
+  }
+
+  candidates.sort((left, right) => rcompare(left.version, right.version))
+  return candidates
+}
+
+function buildGitHubReleaseAssetsFromChecksums(
+  owner: string,
+  repo: string,
+  version: string,
+  checksumsContent: string,
+): readonly GitHubReleaseAssetDescriptor[] {
+  const checksums = parseSha256Sums(checksumsContent)
+  const releaseBaseUrl = `${GITHUB_ORIGIN}/${owner}/${repo}/releases/download/${RELEASE_TAG_PREFIX}${version}`
+  const assets: GitHubReleaseAssetDescriptor[] = []
+  let hasChecksumsAsset = false
+
+  for (const fileName of checksums.keys()) {
+    if (!isSafeReleaseAssetFileName(fileName)) continue
+    if (fileName === CHECKSUMS_ASSET_NAME) {
+      hasChecksumsAsset = true
+    }
+    assets.push({
+      name: fileName,
+      browserDownloadUrl: `${releaseBaseUrl}/${encodeURIComponent(fileName)}`,
+    })
+  }
+
+  if (assets.length > 0 && !hasChecksumsAsset) {
+    assets.push({
+      name: CHECKSUMS_ASSET_NAME,
+      browserDownloadUrl: `${releaseBaseUrl}/${CHECKSUMS_ASSET_NAME}`,
+    })
+  }
+  return assets
 }
 
 /**
@@ -223,10 +450,9 @@ export function parseSha256Sums(content: string): ReadonlyMap<string, string> {
   for (const rawLine of content.split(/\r?\n/u)) {
     const trimmed = rawLine.trim()
     if (trimmed === '' || trimmed.startsWith('#')) continue
-    const match = /^([0-9a-fA-F]{64})\s+\*?(.+?)\s*$/u.exec(trimmed)
-    if (match === null || match[1] === undefined || match[2] === undefined) continue
-    const digest = match[1].toLowerCase()
-    const fileName = match[2].replace(/^\.\//u, '').trim()
+    if (!/^[0-9a-fA-F]{64}\s+\*?.+$/u.test(trimmed)) continue
+    const digest = trimmed.slice(0, 64).toLowerCase()
+    const fileName = trimmed.slice(64).trimStart().replace(/^\*/u, '').replace(/^\.\//u, '').trim()
     if (fileName !== '') {
       entries.set(fileName, digest)
     }
@@ -234,53 +460,8 @@ export function parseSha256Sums(content: string): ReadonlyMap<string, string> {
   return entries
 }
 
-function parseReleaseCandidates(payload: unknown, allowPrereleases: boolean): GitHubReleaseCandidate[] {
-  if (!Array.isArray(payload)) {
-    throw new Error('desktop update: GitHub Releases response must be a JSON array')
-  }
-  const candidates: GitHubReleaseCandidate[] = []
-  for (const entry of payload) {
-    if (!isRecord(entry)) continue
-    if (entry.draft === true) continue
-    if (typeof entry.tag_name !== 'string' || !entry.tag_name.startsWith(RELEASE_TAG_PREFIX)) continue
-    const rawVersion = entry.tag_name.slice(RELEASE_TAG_PREFIX.length)
-    const parsedVersion = parse(rawVersion, { loose: false })
-    if (parsedVersion === null || parsedVersion.version !== rawVersion || parsedVersion.build.length > 0) {
-      continue
-    }
-    const isPrerelease = entry.prerelease === true || parsedVersion.prerelease.length > 0
-    if (!allowPrereleases && isPrerelease) continue
-
-    const assets: GitHubReleaseAssetDescriptor[] = []
-    if (Array.isArray(entry.assets)) {
-      for (const rawAsset of entry.assets) {
-        if (!isRecord(rawAsset)) continue
-        if (typeof rawAsset.name !== 'string' || rawAsset.name.trim() === '') continue
-        if (typeof rawAsset.browser_download_url !== 'string' || rawAsset.browser_download_url.trim() === '') continue
-        const size = typeof rawAsset.size === 'number' && Number.isFinite(rawAsset.size) && rawAsset.size > 0
-          ? rawAsset.size
-          : undefined
-        assets.push({
-          name: rawAsset.name.trim(),
-          browserDownloadUrl: rawAsset.browser_download_url.trim(),
-          ...(size === undefined ? {} : { size }),
-        })
-      }
-    }
-
-    candidates.push({
-      tagName: entry.tag_name,
-      version: parsedVersion.version,
-      prerelease: isPrerelease,
-      assets,
-    })
-  }
-  candidates.sort((left, right) => rcompare(left.version, right.version))
-  return candidates
-}
-
 /**
- * `AppUpdater`-compatible desktop update provider backed by GitHub Releases and `SHA256SUMS.txt` verification.
+ * `AppUpdater`-compatible desktop update provider backed by `github.com` web release endpoints and `SHA256SUMS.txt` verification.
  */
 export class GitHubReleaseUpdater extends EventEmitter {
   /** Configured by `DesktopUpdateCoordinator`; downloads are always explicitly user-authorized. */
@@ -345,47 +526,80 @@ export class GitHubReleaseUpdater extends EventEmitter {
   }
 
   /**
-   * Query the GitHub Releases API for the newest compatible `strata-v*` release.
+   * Query `github.com` web release feeds and `SHA256SUMS.txt` for the newest installable `strata-v*` release.
    * @returns Update availability and target SemVer version for `DesktopUpdateCoordinator`.
    */
   async checkForUpdates(): Promise<GitHubReleaseCheckResult> {
     const installedVersion = this.currentVersion()
-    const apiUrl = validateIsolatedHttpUrl(
-      `https://api.github.com/repos/${this.owner}/${this.repo}/releases?per_page=20`,
-      'GitHub Releases API',
+    const allowPrereleases = prerelease(installedVersion) !== null && this.channel !== 'stable'
+    const checkedVersions = new Set<string>()
+    let maxStableVersion: string | undefined
+    let probesUsed = 0
+
+    if (!allowPrereleases) {
+      const probe = await this.probeLatestStableRelease(installedVersion)
+      if (probe.kind === 'none') {
+        this.selectedRelease = undefined
+        return { isUpdateAvailable: false, updateInfo: { version: installedVersion } }
+      }
+      if (probe.kind === 'tag') {
+        if (lte(probe.candidate.version, installedVersion)) {
+          this.selectedRelease = undefined
+          return { isUpdateAvailable: false, updateInfo: { version: installedVersion } }
+        }
+        maxStableVersion = probe.candidate.version
+        checkedVersions.add(probe.candidate.version)
+        probesUsed += 1
+        const verified = await this.tryResolveVerifiedCandidate(probe.candidate, installedVersion)
+        if (verified !== undefined) {
+          this.selectedRelease = verified
+          return { isUpdateAvailable: true, updateInfo: { version: verified.version } }
+        }
+      }
+    }
+
+    const atomUrl = validateIsolatedHttpUrl(
+      `${GITHUB_ORIGIN}/${this.owner}/${this.repo}/releases.atom`,
+      'GitHub Releases Atom feed',
     )
-    const { response, clearTimer } = await this.openTimedResponse(apiUrl, {
+    const { response, refreshTimer, clearTimer } = await this.openTimedResponse(atomUrl, {
       headers: {
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
+        Accept: 'application/atom+xml, application/xml, text/xml',
         'User-Agent': `StrataHarness/${installedVersion}`,
       },
     })
+    let atomXml: string
     try {
       if (response.status === 404) {
+        await cancelResponseBody(response)
         this.selectedRelease = undefined
         return { isUpdateAvailable: false, updateInfo: { version: installedVersion } }
       }
       if (!response.ok) {
+        await cancelResponseBody(response)
         throw new Error(`desktop update: GitHub Releases request failed with HTTP ${String(response.status)}`)
       }
-      const payload: unknown = await response.json()
-      const allowPrereleases = prerelease(installedVersion) !== null && this.channel !== 'stable'
-      const candidates = parseReleaseCandidates(payload, allowPrereleases)
-      const bestRelease = candidates[0]
-      if (bestRelease === undefined || lte(bestRelease.version, installedVersion)) {
-        this.selectedRelease = undefined
-        return { isUpdateAvailable: false, updateInfo: { version: installedVersion } }
-      }
-      if (gt(bestRelease.version, installedVersion)) {
-        this.selectedRelease = bestRelease
-        return { isUpdateAvailable: true, updateInfo: { version: bestRelease.version } }
-      }
-      this.selectedRelease = undefined
-      return { isUpdateAvailable: false, updateInfo: { version: installedVersion } }
+      atomXml = await readBoundedUtf8Text(response, refreshTimer, MAX_ATOM_FEED_BYTES, 'GitHub Releases Atom feed')
     } finally {
       clearTimer()
     }
+
+    const candidates = parseReleasesAtomCandidates(atomXml, this.owner, this.repo, allowPrereleases)
+    for (const candidate of candidates) {
+      if (lte(candidate.version, installedVersion)) break
+      if (maxStableVersion !== undefined && gt(candidate.version, maxStableVersion)) continue
+      if (checkedVersions.has(candidate.version)) continue
+      if (probesUsed >= MAX_CANDIDATE_ASSET_PROBES) break
+      probesUsed += 1
+      const verified = await this.tryResolveVerifiedCandidate(candidate, installedVersion)
+      if (verified !== undefined) {
+        this.selectedRelease = verified
+        return { isUpdateAvailable: true, updateInfo: { version: verified.version } }
+      }
+    }
+
+    this.selectedRelease = undefined
+    return { isUpdateAvailable: false, updateInfo: { version: installedVersion } }
   }
 
   /**
@@ -440,6 +654,7 @@ export class GitHubReleaseUpdater extends EventEmitter {
       return [installerPath]
     } catch (error) {
       this.preparedInstaller = undefined
+      /* v8 ignore next -- best-effort temporary directory cleanup after download failure */
       await rm(tempDir, { recursive: true, force: true }).catch(() => undefined)
       throw error
     }
@@ -491,23 +706,18 @@ export class GitHubReleaseUpdater extends EventEmitter {
       return
     }
 
-    if (this.platform === 'darwin') {
-      void Promise.resolve()
-        .then(() => this.openInstaller(prepared.filePath))
-        .then((errorMessage) => {
-          if (errorMessage !== '') {
-            this.emit('error', new Error(`desktop update: failed to open ${prepared.filePath}: ${errorMessage}`))
-            return
-          }
-          this.quit()
-        })
-        .catch((error: unknown) => {
-          this.emit('error', error instanceof Error ? error : new Error(String(error)))
-        })
-      return
-    }
-
-    this.emit('error', new Error(`desktop update: unsupported installer platform ${this.platform}`))
+    void Promise.resolve()
+      .then(() => this.openInstaller(prepared.filePath))
+      .then((errorMessage) => {
+        if (errorMessage !== '') {
+          this.emit('error', new Error(`desktop update: failed to open ${prepared.filePath}: ${errorMessage}`))
+          return
+        }
+        this.quit()
+      })
+      .catch((error: unknown) => {
+        this.emit('error', error instanceof Error ? error : new Error(String(error)))
+      })
   }
 
   /**
@@ -523,19 +733,16 @@ export class GitHubReleaseUpdater extends EventEmitter {
     const previous = this.preparedInstaller
     this.preparedInstaller = undefined
     if (previous !== undefined) {
+      /* v8 ignore next -- best-effort cleanup when retiring staged installer */
       await rm(previous.tempDir, { recursive: true, force: true }).catch(() => undefined)
     }
   }
 
-  private async openTimedResponse(
-    url: string,
-    init: RequestInit,
-  ): Promise<{
-    readonly response: Response
+  private createIdleTimer(): {
+    readonly signal: AbortSignal
     readonly refreshTimer: () => void
     readonly clearTimer: () => void
-  }> {
-    validateIsolatedHttpUrl(url, 'updater request')
+  } {
     const controller = new AbortController()
     let timer: ReturnType<typeof setTimeout> | undefined
     const clearTimer = (): void => {
@@ -550,29 +757,143 @@ export class GitHubReleaseUpdater extends EventEmitter {
         controller.abort(Object.assign(new Error('Desktop update connection timed out'), { code: 'ETIMEDOUT' }))
       }, this.timeoutMs)
     }
-
     refreshTimer()
+    return { signal: controller.signal, refreshTimer, clearTimer }
+  }
+
+  private async probeLatestStableRelease(installedVersion: string): Promise<LatestStableProbeResult> {
+    let currentUrl = validateIsolatedHttpUrl(
+      `${GITHUB_ORIGIN}/${this.owner}/${this.repo}/releases/latest`,
+      'GitHub latest release',
+    )
+    const timer = this.createIdleTimer()
+    try {
+      for (let redirectCount = 0; redirectCount <= MAX_HTTP_REDIRECTS; redirectCount += 1) {
+        const response = await this.fetchImpl(currentUrl, {
+          headers: {
+            Accept: 'text/html,application/xhtml+xml',
+            'User-Agent': `StrataHarness/${installedVersion}`,
+          },
+          redirect: 'manual',
+          signal: timer.signal,
+        })
+        timer.refreshTimer()
+        if (response.status === 404) {
+          await cancelResponseBody(response)
+          return { kind: 'none' }
+        }
+        if (response.status >= 300 && response.status < 400) {
+          const location = response.headers.get('location')
+          await cancelResponseBody(response)
+          if (location === null || location.trim() === '') {
+            throw new Error('desktop update: GitHub latest release redirect is missing Location header')
+          }
+          const resolvedUrl = resolveIsolatedRedirectUrl(location, currentUrl, 'redirected updater request')
+          const classified = classifyLatestReleaseUrl(resolvedUrl, this.owner, this.repo)
+          if (classified !== undefined) {
+            return classified
+          }
+          if (redirectCount < MAX_HTTP_REDIRECTS) {
+            currentUrl = resolvedUrl
+            continue
+          }
+          break
+        }
+        await cancelResponseBody(response)
+        if (!response.ok) {
+          throw new Error(`desktop update: GitHub Releases request failed with HTTP ${String(response.status)}`)
+        }
+        if (response.url.trim() !== '') {
+          const finalUrl = validateIsolatedHttpUrl(response.url, 'redirected updater response')
+          const classified = classifyLatestReleaseUrl(finalUrl, this.owner, this.repo)
+          if (classified !== undefined) {
+            return classified
+          }
+        }
+        throw new Error('desktop update: unexpected response from GitHub latest release endpoint')
+      }
+      throw new Error(`desktop update: exceeded maximum HTTP redirects (${String(MAX_HTTP_REDIRECTS)})`)
+    } finally {
+      timer.clearTimer()
+    }
+  }
+
+  private async tryResolveVerifiedCandidate(
+    candidate: GitHubReleaseTagCandidate,
+    installedVersion: string,
+  ): Promise<GitHubReleaseCandidate | undefined> {
+    const { target, extension } = resolveGitHubReleasePlatformTarget(this.platform, this.arch)
+    const checksumsUrl = validateIsolatedHttpUrl(
+      `${GITHUB_ORIGIN}/${this.owner}/${this.repo}/releases/download/${candidate.tagName}/${CHECKSUMS_ASSET_NAME}`,
+      CHECKSUMS_ASSET_NAME,
+    )
+    const { response, refreshTimer, clearTimer } = await this.openTimedResponse(checksumsUrl, {
+      headers: {
+        Accept: 'text/plain, application/octet-stream',
+        'User-Agent': `StrataHarness/${installedVersion}`,
+      },
+    })
+    let checksumsText: string
+    try {
+      if (response.status === 404) {
+        await cancelResponseBody(response)
+        return undefined
+      }
+      if (!response.ok) {
+        await cancelResponseBody(response)
+        throw new Error(`desktop update: ${CHECKSUMS_ASSET_NAME} request failed with HTTP ${String(response.status)}`)
+      }
+      checksumsText = await readBoundedUtf8Text(response, refreshTimer, MAX_CHECKSUMS_BYTES, CHECKSUMS_ASSET_NAME)
+    } finally {
+      clearTimer()
+    }
+
+    const assets = buildGitHubReleaseAssetsFromChecksums(this.owner, this.repo, candidate.version, checksumsText)
+    const signedFileName = `strataharness-${candidate.version}-${target}.${extension}`
+    const unsignedFileName = `strataharness-${candidate.version}-${target}-unsigned.${extension}`
+    if (!assets.some(asset => asset.name === signedFileName || asset.name === unsignedFileName)) {
+      return undefined
+    }
+    selectGitHubReleaseAssets(candidate.version, assets, this.platform, this.arch)
+    return {
+      tagName: candidate.tagName,
+      version: candidate.version,
+      prerelease: candidate.prerelease,
+      assets,
+    }
+  }
+
+  private async openTimedResponse(
+    url: string,
+    init: RequestInit,
+  ): Promise<{
+    readonly response: Response
+    readonly refreshTimer: () => void
+    readonly clearTimer: () => void
+  }> {
+    validateIsolatedHttpUrl(url, 'updater request')
+    const { signal, refreshTimer, clearTimer } = this.createIdleTimer()
     try {
       let currentUrl = url
       for (let redirectCount = 0; redirectCount <= MAX_HTTP_REDIRECTS; redirectCount += 1) {
         const response = await this.fetchImpl(currentUrl, {
           ...init,
           redirect: 'manual',
-          signal: controller.signal,
+          signal,
         })
         refreshTimer()
         if (response.status >= 300 && response.status < 400) {
           const location = response.headers.get('location')
           if (location !== null && location.trim() !== '') {
-            if (redirectCount === MAX_HTTP_REDIRECTS) {
-              throw new Error(`desktop update: exceeded maximum HTTP redirects (${String(MAX_HTTP_REDIRECTS)})`)
+            await cancelResponseBody(response)
+            if (redirectCount < MAX_HTTP_REDIRECTS) {
+              currentUrl = resolveIsolatedRedirectUrl(location, currentUrl, 'redirected updater request')
+              continue
             }
-            const resolvedRedirectUrl = new URL(location, currentUrl).href
-            currentUrl = validateIsolatedHttpUrl(resolvedRedirectUrl, 'redirected updater request')
-            continue
+            break
           }
         }
-        if (typeof response.url === 'string' && response.url.trim() !== '') {
+        if (response.url.trim() !== '') {
           validateIsolatedHttpUrl(response.url, 'redirected updater response')
         }
         return { response, refreshTimer, clearTimer }
@@ -596,6 +917,7 @@ export class GitHubReleaseUpdater extends EventEmitter {
     })
     try {
       if (!response.ok) {
+        await cancelResponseBody(response)
         throw new Error(`desktop update: installer download failed with HTTP ${String(response.status)}`)
       }
       const contentLengthHeader = response.headers.get('content-length')
@@ -610,7 +932,7 @@ export class GitHubReleaseUpdater extends EventEmitter {
 
       const fileHandle = await open(installerPath, 'wx', 0o700)
       try {
-        if (response.body !== null && typeof response.body.getReader === 'function') {
+        if (response.body !== null) {
           const reader = response.body.getReader()
           for (;;) {
             const { done, value } = await reader.read()
@@ -637,6 +959,7 @@ export class GitHubReleaseUpdater extends EventEmitter {
           }
         }
       } finally {
+        /* v8 ignore next -- best-effort descriptor close after stream write */
         await fileHandle.close().catch(() => undefined)
       }
 
@@ -650,7 +973,7 @@ export class GitHubReleaseUpdater extends EventEmitter {
   }
 
   private async downloadChecksumsText(checksumsUrl: string): Promise<string> {
-    const { response, clearTimer } = await this.openTimedResponse(checksumsUrl, {
+    const { response, refreshTimer, clearTimer } = await this.openTimedResponse(checksumsUrl, {
       headers: {
         Accept: 'text/plain, application/octet-stream',
         'User-Agent': `StrataHarness/${this.currentVersion()}`,
@@ -658,9 +981,10 @@ export class GitHubReleaseUpdater extends EventEmitter {
     })
     try {
       if (!response.ok) {
+        await cancelResponseBody(response)
         throw new Error(`desktop update: ${CHECKSUMS_ASSET_NAME} download failed with HTTP ${String(response.status)}`)
       }
-      return await response.text()
+      return await readBoundedUtf8Text(response, refreshTimer, MAX_CHECKSUMS_BYTES, CHECKSUMS_ASSET_NAME)
     } finally {
       clearTimer()
     }
