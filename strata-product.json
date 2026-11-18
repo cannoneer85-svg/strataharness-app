@@ -1,6 +1,6 @@
 {
   "productName": "StrataHarness",
-  "productVersion": "1.1.2",
+  "productVersion": "1.1.3",
   "upstreamBaseTag": "dsh-v0.2.2-rc.3",
   "upstreamRepository": "https://github.com/deepseek-ai/deepseek-harness.git",
   "releaseRepository": "https://github.com/cannoneer85-svg/strataharness-app.git"
