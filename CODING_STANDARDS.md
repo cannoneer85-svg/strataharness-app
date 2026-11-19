@@ -17,12 +17,13 @@ Engineering judgement rules and architectural standards for `strataharness-app`,
 - **Explicit configuration resolution:** Model defaulting as an explicit `resolve(request): Spec` step at package entrypoints rather than hidden `?? default` fallbacks inside runtime execution, and expose deployment-varying choices through validated Cordis `Config` schemas rather than hardcoded constants.
 - **No production fallback endpoints or secrets:** Never embed real tokens, credentials, or production/internal URLs as default fallbacks in code (`process.env.X || "..."`). Validate untrusted inputs once at parser, config, durable file, IPC, subprocess, and network trust boundaries.
 - **Fail loud with typed context:** Surface misconfiguration and violated invariants immediately using typed `HarnessError` or `RemoteError` failures with clear handling ownership and containment ([defensive-patterns](docs/defensive-patterns/README.md)); never swallow unexpected errors silently.
+- **Account for Undici's 300-second headers timeout on long HTTP probes:** Node's global `fetch()` enforces a default `300_000` ms `headersTimeout` independently of `AbortSignal.timeout()`. When calling an endpoint that may compute for over 300 seconds before flushing response headers, use `node:http`/`node:https` `request()` or an explicit dispatcher so the caller's `AbortSignal` governs the full deadline.
 
 ## Session Durability, Localization, and Documentation Parity
 
 - **Immutable historical sessions and logged model inputs:** Anything visible to the model must be reconstructable from the session log (`SessionEventMap`). Handle legacy session identifiers and formats at read/lookup time via aliases, projections, or adjacent versioned migrations without mutating historical session files.
 - **Locale-owned UI copy and 100% Russian parity:** Route every Client UI and Electron shell string through typed dictionaries so `@strata/locale-ru` and `russian-localization-parity.spec.ts` enforce complete Russian coverage, keeping model-facing system prompts and agent files in English.
-- **One home per fact and bilingual pairing:** Keep active English/Chinese doc pairs and owning [Agent Notes](.agents/notes/README.md) synchronized in the same change ([docs/AGENTS.md](docs/AGENTS.md)), placing durable rationale in `.agents/notes/` rather than duplicating rules across tiers.
+- **One home per fact and bilingual pairing:** Keep active English/Chinese doc pairs and owning [Agent Notes](.agents/notes/README.md) synchronized across every section (`Problem`, `Decision`, `Alternatives considered`, `Consequences`) before re-recording `.i18n.yaml` ([docs/AGENTS.md](docs/AGENTS.md)), placing durable rationale in `.agents/notes/` rather than duplicating rules across tiers.
 
 ## Testing Judgement and Verification Scope
 
