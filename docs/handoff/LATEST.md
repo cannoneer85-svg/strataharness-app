@@ -1,10 +1,10 @@
-Копия актуального handoff-документа: [2026-11-19-github-releases-web-updater.md](2026-11-19-github-releases-web-updater.md).
+Копия актуального handoff-документа: [2026-11-19-desktop-smoke-office-timeouts.md](2026-11-19-desktop-smoke-office-timeouts.md).
 
-# Передача контекста: Переход GitHubReleaseUpdater на веб-эндпоинты github.com (github-releases-web-updater)
+# Передача контекста: Расширение таймаутов Office smoke-проверки для macOS Intel CI (desktop-smoke-office-timeouts)
 
 **Дата:** 2026-11-19
 **Целевая ветка:** `main`
-**Текущий тег продукта в манифесте:** `1.1.2` (в опубликованной сборке `strata-v1.1.1` / `strata-v1.1.2` проверка обновлений падала с `HTTP 403` при исчерпании IP-квоты `api.github.com`)
+**Текущий тег продукта в манифесте:** `1.1.3`
 **Базовый тег апстрима:** `dsh-v0.2.2-rc.3`
 **Сабмодуль методологии:** `v1.4.6`
 
@@ -12,14 +12,13 @@
 
 ## Состояние
 
-- **Цель:** Устранить зависимость десктопного автообновления `StrataHarness Desktop` от неавторизованного REST API `api.github.com` (лимит `60` запросов в час на внешний IP за общим VPN/CGNAT), переведя [`GitHubReleaseUpdater`](../../apps/desktop/src/github-release-updater.ts) на публичные веб-эндпоинты `github.com` с ранней проверкой `SHA256SUMS.txt` и установщика под текущую ОС.
-- **Достигнутый этап:** Этап 6 (Закрытие задачи `/close-task`); маршрут `Development` / `Minor` (`1 → 4 (In-Place) → 5 → 6`), префлайт-проверки и трёхосевое ревью (`/code-review`: `Standards`, `Spec`, `Adversary`) полностью завершены.
+- **Цель:** Устранить падение упаковочного smoke-теста `prepare:dsh` → `runtime:smoke` (`OfficeKitError: LibreOffice conversion timed out` при `timeoutMs: 120000` в `/desktop-smoke-office-operations/xlsx`) на троттлящих Intel-раннерах `macos-15-intel`, не увеличивая продуктовый лимит пользовательских сессий.
+- **Достигнутый этап:** Этап 6 (`/close-task`); маршрут `Development / Minor` (`1 → 4 (In-Place) → 5 → 6`), все префлайт-проверки (`Smoke Runtime` / `Prepared Runtime Smoke` / `Product Bundle` `22/22`, `dsh-desktop` build, `oxlint` `0 errors`, `typecheck` `5/5`, `verify-export-jsdoc`, `strata:audit-overrides`, `Test-Template.ps1`, `test:docs` `21/21`) и трёхосевое ревью (`/code-review`: `Standards`, `Spec`, `Adversary`) завершены.
 - **Что сделано:**
-  1. **Веб-контур обнаружения релизов (`apps/desktop/src/github-release-updater.ts`):** Удалены все обращения к `api.github.com`. Для стабильных установок `checkForUpdates()` запрашивает `https://github.com/<owner>/<repo>/releases/latest` с `redirect: 'manual'` и считывает тег `strata-v*` из заголовка `Location` без скачивания HTML-страницы (с фолбэком в `releases.atom` при нестандартном или пререлизном теге), а для пререлизных установок (при канале, отличном от `stable`) напрямую разбирает `https://github.com/<owner>/<repo>/releases.atom`. Парсинг `releases.atom` очищает самозакрывающиеся (`<content/>`, `<summary/>`) и парные блоки заметок, требует `rel="alternate"` и точного совпадения `<owner>/<repo>` на `github.com`, распознаёт метаданные `Release Channel: Prerelease | Draft` на тегах без SemVer-суффикса и соблюдает потолок `maxStableVersion` при фолбэке стабильной установки. Запросы к текстовым ответам ограничены через `readBoundedUtf8Text` (`2` МиБ для `releases.atom`, `64` КиБ для `SHA256SUMS.txt`), а число последовательных проб `SHA256SUMS.txt` за одну проверку ограничено `MAX_CANDIDATE_ASSET_PROBES = 5`.
-  2. **Ранняя проверка `SHA256SUMS.txt` и установщика под ОС:** Для кандидатов версии старше текущей `checkForUpdates()` сразу запрашивает `releases/download/strata-v<version>/SHA256SUMS.txt`, проверяет безопасность имён файлов и наличие установщика под текущую платформу (`win-x64` → `.exe`, `mac-arm64` / `mac-x64` → `.dmg`, с приоритетом подписанного файла над `-unsigned`), пропуская ещё не догруженные (`404`) или одноплатформенные релизы в пользу более раннего готового кандидата `> currentVersion` либо `idle`.
-  3. **Тесты (`apps/desktop/tests/github-release-updater.spec.ts`):** По TDD обновлены и расширены модульные и интеграционные тесты (`54/54` в связке с `update-coordinator.spec.ts` и `update-channel.spec.ts`, `100%` Stmts / Branch / Funcs / Lines на `apps/desktop/src/github-release-updater.ts`).
-  4. **Документация и Agent Note:** Обновлён раздел 7 в [`fork-maintenance.md`](../strata/fork-maintenance.md), синхронно обновлена двуязычная заметка [`.agents/notes/implemented/process/2026-10-29-strata-release-distribution-and-upstream-radar.md`](../../.agents/notes/implemented/process/2026-10-29-strata-release-distribution-and-upstream-radar.md) / `.zh.md` с пересчётом `.i18n.yaml`.
-- **Решения и нюансы:** Установленный на пользовательском ПК бинарник `v1.1.1` / `v1.1.2` содержит прежний клиент с `api.github.com`; переход на веб-эндпоинты вступит в силу у конечных пользователей после сборки и публикации следующего релиза (`strata-v1.1.3` или выше). Бэкпорты со смещением `/releases/latest` назад за старшую версию оставлены без отдельного обхода, так как `StrataHarness` выпускает релизы линейно из ветки `main`. На Windows при проверке полного `doc-sync` гейт `verify-cli-help` (`acp --help`) продолжает упираться в 30-секундный `SIGKILL` вне зоны правок данной задачи; все релевантные проверки (`vitest`, `dsh-desktop` build, `oxlint`, `typecheck`, `verify-export-jsdoc`, `strata:audit-overrides`, `Test-Template.ps1`, `test:docs` `21/21`) пройдены. В рамках закрытия задачи каталог `.scratch/github-releases-web-updater/` (`BASE_COMMIT`, `OPEN_QUESTIONS.md`) полностью удалён.
+  1. **Таймауты и HTTP-клиент smoke-теста ([`smoke-runtime.ts`](../../apps/desktop/scripts/smoke-runtime.ts)):** Поднят `office-kit.config.timeoutMs` в `SMOKE_PROFILE_PATCH_YAML` до `300000` мс (`SMOKE_OFFICE_OPERATION_TIMEOUT_MS`), заданы дедлайны `SMOKE_OFFICE_CONVERT_HTTP_TIMEOUT_MS` (`330_000` мс) и `SMOKE_OFFICE_BATCH_HTTP_TIMEOUT_MS` (`930_000` мс), а глобальный `fetch()` на маршрутах `/desktop-smoke-office/*` и `/desktop-smoke-office-operations/*` заменён на stdlib-хелпер `requestSmokeEndpoint` (`node:http`), который не ограничивается дефолтным Undici `headersTimeout = 300_000` мс. В маршрутах smoke-плагина добавлен проброс `AbortSignal` при преждевременном закрытии HTTP-ответа клиентом в `ctx.officeKit.{convert,renderImages,convertTo,recalculate}`.
+  2. **Тесты ([`smoke-runtime.spec.ts`](../../apps/desktop/tests/smoke-runtime.spec.ts)):** Обновлены проверки `SMOKE_PROFILE_PATCH_YAML` и дедлайнов, а также добавлены поведенческие тесты `requestSmokeEndpoint` против реального loopback HTTP-сервера (чтение отложенного ответа с пробросом cookie и обрыв зависшего запроса по `timeoutMs`).
+  3. **Синхронизация Agent Note и сохранение продуктового профиля:** Во всех секциях (`Decision`, `Alternatives considered`, `Consequences`) двуязычной заметки [`.agents/notes/implemented/architecture/2026-11-15-strata-preset-lineup-and-legacy-aliases.md`](../../.agents/notes/implemented/architecture/2026-11-15-strata-preset-lineup-and-legacy-aliases.md) / [`.zh.md`](../../.agents/notes/implemented/architecture/2026-11-15-strata-preset-lineup-and-legacy-aliases.zh.md) актуализировано `SMOKE_PROFILE_PATCH_YAML` (`300000` мс) и пересчитаны хеши `.i18n.yaml`, а продуктовый [`cordis.patch.yml`](../../packages/strata/product-bundle/cordis.patch.yml) оставлен на `timeoutMs: 120000`.
+- **Решения и нюансы:** Для уже отправленного тега `strata-v1.1.3` перезапущен упавший джоб `Package macOS (mac-x64)` в прогоне GitHub Actions `44414648005` без изменения тега. Лимит `timeout-minutes: 120` в macOS-воркфлоу оставлен как защита CI от зависания раннеров, а каталог `.scratch/desktop-smoke-office-timeouts/` (`BASE_COMMIT`, `OPEN_QUESTIONS.md`) полностью удалён при закрытии задачи.
 
 ---
 
@@ -31,11 +30,11 @@ none
 
 ## Следующий шаг
 
-Отправить локальный коммит в `origin/main` (`git push`) и при готовности к выпуску исправления для пользователей запустить `/strata-release` на ветке `main` (подготовив релиз `v1.1.3` с обновлением `GitHubReleaseUpdater`).
+Дождаться завершения перезапуска джоба `Package macOS (mac-x64)` и публикации релиза `strata-v1.1.3` в GitHub Actions, после чего отправить локальный коммит с ветки `main` (`git push`), чтобы увеличенные таймауты smoke-проверки вошли в следующие релизы (`v1.1.4+`).
 
 ---
 
 ## Рекомендуемые скиллы
 
-- `/strata-release` ([`.agents/skills/strata-release/SKILL.md`](../../.agents/skills/strata-release/SKILL.md)) — интерактивный мастер выпуска релиза `StrataHarness Desktop` (`strata-v1.1.3`).
-- `/dsh-pre-push-checks` ([`.agents/skills/dsh-pre-push-checks/SKILL.md`](../../.agents/skills/dsh-pre-push-checks/SKILL.md)) — выбор минимального набора проверок перед отправкой ветки.
+- `/dsh-pre-push-checks` ([`.agents/skills/dsh-pre-push-checks/SKILL.md`](../../.agents/skills/dsh-pre-push-checks/SKILL.md)) — проверка минимального набора гейтов перед отправкой ветки.
+- `/strata-release` ([`.agents/skills/strata-release/SKILL.md`](../../.agents/skills/strata-release/SKILL.md)) — мастер выпуска следующего релиза `StrataHarness Desktop`.
