@@ -39,6 +39,9 @@
 - id: ui-settings-account
   disabled: true
 
+- id: ui-account-notifications
+  disabled: true
+
 - id: ui-settings-session-log
   disabled: true
 
@@ -67,6 +70,7 @@
     default: standard
     aliases:
       strata: strata-developer
+      cordis: strata-developer
 
 - id: preset-minimal
   disabled: true

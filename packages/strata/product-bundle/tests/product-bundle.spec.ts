@@ -1,8 +1,11 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import * as fsPromises from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import * as os from 'node:os'
 import { tmpdir } from 'node:os'
-import { join, parse, resolve } from 'node:path'
+import { dirname, join, parse, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { runInNewContext } from 'node:vm'
 import { Context } from '@deepseek-ai/cordis'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
 import * as AgentInstructions from '@deepseek-ai/dsh-agent-instructions'
@@ -15,6 +18,7 @@ import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { bundlePatchPaths, composeEntries } from '@deepseek-ai/dsh-app-boot/src/profile.ts'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
+import * as SkillFilesystem from '@deepseek-ai/dsh-skill-filesystem'
 import { Config as SkillOfficeConfig } from '@deepseek-ai/dsh-skill-office'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { Config as ToolOfficeConfig } from '@deepseek-ai/dsh-tool-office'
@@ -239,6 +243,42 @@ function collectNestedPlugins(entries: readonly RawPluginEntry[]): RawPluginEntr
   return collected
 }
 
+function activePresetsById(entries: readonly RawPluginEntry[]) {
+  return new Map(
+    entries
+      .filter(entry => entry.name === '@deepseek-ai/dsh-agent-preset' && entry.disabled !== true)
+      .map((entry) => {
+        const cfg = entry.config as { id: string; order: number; plugins: RawPluginEntry[] }
+        return [cfg.id, cfg] as const
+      }),
+  )
+}
+
+function collectSourceFiles(dir: string): string[] {
+  if (!existsSync(dir)) return []
+  const files: string[] = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      files.push(...collectSourceFiles(fullPath))
+    } else if (entry.isFile() && (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx'))) {
+      files.push(fullPath)
+    }
+  }
+  return files
+}
+
+function collectProvidedServices(pkgRoot: string): Set<string> {
+  const services = new Set<string>()
+  for (const filePath of collectSourceFiles(join(pkgRoot, 'src'))) {
+    const source = readFileSync(filePath, 'utf8')
+    for (const match of source.matchAll(/(?:super\(ctx,\s*|provide\()['"]([^'"]+)['"]/g)) {
+      if (match[1] !== undefined) services.add(match[1])
+    }
+  }
+  return services
+}
+
 function loadComposedProductEntries() {
   const repoRoot = resolve(import.meta.dirname, '..', '..', '..', '..')
   const bundleDirs = [
@@ -280,7 +320,10 @@ describe('Strata preset lineup & overrides (@strata/product-bundle)', () => {
     const registryEntry = entries.find(entry => entry.id === 'agent-preset-registry')
     expect(registryEntry?.config).toEqual({
       default: 'standard',
-      aliases: { strata: 'strata-developer' },
+      aliases: {
+        strata: 'strata-developer',
+        cordis: 'strata-developer',
+      },
     })
 
     for (const disabledId of ['preset-minimal', 'preset-ptc', 'preset-cordis']) {
@@ -335,6 +378,14 @@ describe('Strata preset lineup & overrides (@strata/product-bundle)', () => {
       expect(resolvedAlias.id).toBe('strata-developer')
       const docAlias = await ctx.agentPresets.readDocument('strata')
       expect(docAlias.agentPreset).toBe('strata-developer')
+
+      const resolvedCordisAlias = await ctx.agentPresets.resolve('cordis')
+      expect(resolvedCordisAlias.id).toBe('strata-developer')
+      if (resolvedCordisAlias.broken !== undefined) {
+        expect(resolvedCordisAlias.broken).not.toMatch(/SyntaxError|MODULE_NOT_FOUND|customSkillDirs/)
+      }
+      const docCordisAlias = await ctx.agentPresets.readDocument('cordis')
+      expect(docCordisAlias.agentPreset).toBe('strata-developer')
     } finally {
       await ctx.fiber.dispose()
     }
@@ -342,14 +393,7 @@ describe('Strata preset lineup & overrides (@strata/product-bundle)', () => {
 
   it('unifies pruner/instructions/scaffolding across presets and keeps standard clean of Strata skills', () => {
     const { repoRoot, entries } = loadComposedProductEntries()
-    const presets = new Map(
-      entries
-        .filter(entry => entry.name === '@deepseek-ai/dsh-agent-preset' && entry.disabled !== true)
-        .map((entry) => {
-          const cfg = entry.config as { id: string; order: number; plugins: RawPluginEntry[] }
-          return [cfg.id, cfg] as const
-        }),
-    )
+    const presets = activePresetsById(entries)
 
     expect([...presets.keys()]).toEqual([
       'standard',
@@ -460,6 +504,168 @@ describe('Strata preset lineup & overrides (@strata/product-bundle)', () => {
     }
     expect(analystPrefix).not.toContain('office-pdf')
     expect(analystPrefix).not.toContain('office-export-pdf')
+  })
+
+  it('equips strata-developer with plugin creation tools and loads dsh-doc alongside bundled Strata skills', async () => {
+    const { repoRoot, entries } = loadComposedProductEntries()
+    const presets = activePresetsById(entries)
+
+    const devPlugins = collectNestedPlugins(presets.get('strata-developer')!.plugins)
+    expect(devPlugins.find(row => row.id === 'tool-cordis')).toMatchObject({
+      id: 'tool-cordis',
+      name: '@deepseek-ai/dsh-tool-cordis',
+    })
+    for (const toolId of ['tool-plugin-manager', 'tool-plugin-market'] as const) {
+      const row = devPlugins.find(item => item.id === toolId)
+      expect(row?.name).toBe(
+        toolId === 'tool-plugin-manager' ? '@deepseek-ai/dsh-plugin-manager/tools' : '@deepseek-ai/dsh-plugin-market/tools',
+      )
+      const disabledExpr = (row?.disabled as { __jsExpr?: string } | undefined)?.__jsExpr
+      expect(typeof disabledExpr).toBe('string')
+      const withoutProfile = runInNewContext(disabledExpr!, { ctx: { get: () => undefined } }) as boolean
+      const withProfile = runInNewContext(disabledExpr!, { ctx: { get: (k: string) => (k === 'profileContext' ? {} : undefined) } }) as boolean
+      expect(withoutProfile).toBe(true)
+      expect(withProfile).toBe(false)
+    }
+
+    const skillFsConfig = devPlugins.find(row => row.id === 'skill-filesystem')?.config as {
+      bundledSkillDir?: unknown
+      customSkillDirs?: unknown[]
+    } | undefined
+    expect(skillFsConfig?.bundledSkillDir).toBeDefined()
+    expect(Array.isArray(skillFsConfig?.customSkillDirs)).toBe(true)
+    expect(skillFsConfig?.customSkillDirs).toHaveLength(1)
+
+    const developerPatchUrl = pathToFileURL(
+      join(repoRoot, 'packages', 'strata', 'product-bundle', 'presets', 'strata-developer.patch.yml'),
+    ).href
+    const bundlePackageUrl = pathToFileURL(
+      join(repoRoot, 'packages', 'strata', 'product-bundle', 'package.json'),
+    ).href
+    const customSkillExpr = (skillFsConfig?.customSkillDirs?.[0] as { __jsExpr?: string } | undefined)?.__jsExpr
+    expect(typeof customSkillExpr).toBe('string')
+    const presetSkillsDir = runInNewContext(customSkillExpr!, { process, baseUrl: developerPatchUrl }) as string
+    const presetSkillsDirFromBundleRoot = runInNewContext(customSkillExpr!, { process, baseUrl: bundlePackageUrl }) as string
+    expect(presetSkillsDirFromBundleRoot).toBe(presetSkillsDir)
+    expect(existsSync(join(presetSkillsDir, 'dsh-doc', 'SKILL.md'))).toBe(true)
+
+    const bundledSkillsDir = join(repoRoot, 'resources', 'strataharness', '.agents', 'skills')
+    let registeredProvider: { list: (opts: Record<string, unknown>) => Promise<Array<{ name: string }>> } | undefined
+    const ctx = new Context()
+    const controller = new AbortController()
+    ctx.provide('skills', {
+      registerProvider(factory: (control: unknown) => typeof registeredProvider) {
+        registeredProvider = factory({ invalidate: () => {}, signal: controller.signal })
+        return () => { controller.abort() }
+      },
+    } as never)
+    try {
+      await ctx.plugin(SkillFilesystem, {
+        includeDefaultRoots: false,
+        watch: false,
+        bundledSkillDir: bundledSkillsDir,
+        customSkillDirs: [presetSkillsDir],
+      }).await()
+      const discovered = await registeredProvider!.list({})
+      const names = discovered.map(item => item.name)
+      expect(names).toContain('dsh-doc')
+      expect(names).toContain('tdd')
+      expect(names).toContain('grill-with-docs')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('disables ui-account-notifications and keeps active client plugins free of disabled service dependencies', () => {
+    const { repoRoot, entries } = loadComposedProductEntries()
+
+    expect(entries.find(entry => entry.id === 'ui-account-notifications')?.disabled).toBe(true)
+
+    const bundleResolvers = [
+      createRequire(join(repoRoot, 'packages', 'bundle', 'base', 'package.json')),
+      createRequire(join(repoRoot, 'packages', 'bundle', 'web-app', 'package.json')),
+      createRequire(join(repoRoot, 'packages', 'strata', 'product-bundle', 'package.json')),
+    ]
+    const resolvePkgJson = (pkgName: string): string | undefined => {
+      for (const req of bundleResolvers) {
+        try {
+          return req.resolve(`${pkgName}/package.json`)
+        } catch (_notInLayer) {
+          // Package is not directly declared in this layer's dependencies; probe the next bundle resolver.
+        }
+      }
+      return undefined
+    }
+
+    const packageNameOf = (entryName: string): string => {
+      if (!entryName.startsWith('@')) return entryName.split('/')[0]!
+      const [scope, pkg] = entryName.split('/')
+      return `${scope}/${pkg}`
+    }
+
+    const activePackages = new Set(
+      entries.flatMap(entry =>
+        entry.disabled !== true && typeof entry.name === 'string' ? [packageNameOf(entry.name)] : [],
+      ),
+    )
+    const disabledPackages = new Set(
+      entries
+        .flatMap(entry =>
+          entry.disabled === true && typeof entry.name === 'string' ? [packageNameOf(entry.name)] : [],
+        )
+        .filter(pkgName => !activePackages.has(pkgName)),
+    )
+
+    const activeProvidedServices = new Set<string>()
+    for (const pkgName of activePackages) {
+      const pkgJsonPath = resolvePkgJson(pkgName)
+      if (pkgJsonPath === undefined) continue
+      for (const svc of collectProvidedServices(dirname(pkgJsonPath))) {
+        activeProvidedServices.add(svc)
+      }
+    }
+
+    const disabledServices = new Set<string>(['remote.account', 'accountUi', 'remote.productAnalytics', 'remote.sessionLog', 'deepseekAccount'])
+    for (const pkgName of disabledPackages) {
+      const pkgJsonPath = resolvePkgJson(pkgName)
+      if (pkgJsonPath === undefined) continue
+      for (const svc of collectProvidedServices(dirname(pkgJsonPath))) {
+        if (!activeProvidedServices.has(svc)) disabledServices.add(svc)
+      }
+    }
+
+    for (const entry of entries) {
+      if (entry.disabled === true || typeof entry.name !== 'string') continue
+      if (!entry.name.startsWith('@deepseek-ai/dsh-') && !entry.name.startsWith('@strata/')) continue
+      const pkgName = packageNameOf(entry.name)
+      const pkgJsonPath = resolvePkgJson(pkgName)
+      if (pkgJsonPath === undefined) continue
+      const manifest = JSON.parse(readFileSync(pkgJsonPath, 'utf8')) as {
+        dsh?: { client?: { inject?: string[] } }
+      }
+      if (manifest.dsh?.client === undefined) continue
+
+      for (const depPkg of manifest.dsh.client.inject ?? []) {
+        expect(
+          disabledPackages.has(depPkg),
+          `${entry.id} (${pkgName}) declares dsh.client.inject dependency ${depPkg}, which is disabled`,
+        ).toBe(false)
+      }
+
+      for (const clientFile of collectSourceFiles(join(dirname(pkgJsonPath), 'src', 'client'))) {
+        const source = readFileSync(clientFile, 'utf8')
+        const injectMatches = source.matchAll(/(?:export\s+const|static)\s+inject(?:\s*:\s*[^=]+)?\s*=\s*\[([^\]]*)\]/gs)
+        for (const injectMatch of injectMatches) {
+          const injectedServices = [...injectMatch[1]!.matchAll(/['"]([^'"]+)['"]/g)].map(match => match[1]!)
+          for (const service of injectedServices) {
+            expect(
+              disabledServices.has(service),
+              `${entry.id} (${pkgName}) injects disabled service "${service}" in ${clientFile}`,
+            ).toBe(false)
+          }
+        }
+      }
+    }
   })
 })
 
