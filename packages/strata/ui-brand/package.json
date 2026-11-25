@@ -1,7 +1,7 @@
 {
   "name": "@strata/ui-brand",
   "description": "StrataHarness browser-brand occupants for the Web and Desktop sidebar and conversation hero slots",
-  "version": "1.2.0",
+  "version": "1.1.4",
   "publishConfig": {
     "access": "public"
   },
