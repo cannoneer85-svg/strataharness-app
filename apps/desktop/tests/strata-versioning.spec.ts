@@ -4,6 +4,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { desktopBuildVersionPrefix } from '../scripts/desktop-build-version.mjs'
 import { createDesktopUploadPlan } from '../scripts/desktop-upload-plan.ts'
 import { createElectronBuilderConfig } from '../scripts/electron-builder-config.mjs'
 import * as strataDesktopConfig from '../scripts/strata-desktop-config.mjs'
@@ -38,18 +39,28 @@ function createManifestFixture(manifest: unknown): string {
 }
 
 describe('StrataHarness dual-track product manifest and SemVer resolution', () => {
-  it('declares independent product version 1.1.0 in strata-product.json and @strata/* while keeping DSH engine manifests at 0.2.2-rc.3', () => {
+  it('declares independent product version in strata-product.json and @strata/* while keeping DSH engine manifests aligned', () => {
     const { readStrataProductManifest } = strataDesktopConfig
     expect(readStrataProductManifest).toBeTypeOf('function')
+
+    const rawManifest = JSON.parse(readFileSync(join(REPOSITORY_ROOT, 'strata-product.json'), 'utf8')) as {
+      productVersion: string
+    }
+    const rootPackage = JSON.parse(readFileSync(join(REPOSITORY_ROOT, 'package.json'), 'utf8')) as { version: string }
+    const desktopPackage = JSON.parse(readFileSync(join(APP_ROOT, 'package.json'), 'utf8')) as { version: string }
+    const cliPackage = JSON.parse(
+      readFileSync(join(REPOSITORY_ROOT, 'apps', 'cli', 'package.json'), 'utf8'),
+    ) as { version: string }
 
     const productManifest = readStrataProductManifest(REPOSITORY_ROOT)
     expect(productManifest).toEqual({
       productName: 'StrataHarness',
-      productVersion: '1.1.0',
-      upstreamBaseTag: 'dsh-v0.2.2-rc.3',
+      productVersion: rawManifest.productVersion,
+      upstreamBaseTag: `dsh-v${rootPackage.version}`,
       upstreamRepository: 'https://github.com/deepseek-ai/deepseek-harness.git',
       releaseRepository: 'https://github.com/cannoneer85-svg/strataharness-app.git',
     })
+    expect(productManifest.productVersion).not.toBe(rootPackage.version)
 
     const localeRu = JSON.parse(
       readFileSync(join(REPOSITORY_ROOT, 'packages', 'strata', 'locale-ru', 'package.json'), 'utf8'),
@@ -60,14 +71,12 @@ describe('StrataHarness dual-track product manifest and SemVer resolution', () =
     const uiBrand = JSON.parse(
       readFileSync(join(REPOSITORY_ROOT, 'packages', 'strata', 'ui-brand', 'package.json'), 'utf8'),
     ) as { version: string }
-    expect(localeRu.version).toBe('1.1.0')
-    expect(productBundle.version).toBe('1.1.0')
-    expect(uiBrand.version).toBe('1.1.0')
+    expect(localeRu.version).toBe(productManifest.productVersion)
+    expect(productBundle.version).toBe(productManifest.productVersion)
+    expect(uiBrand.version).toBe(productManifest.productVersion)
 
-    const rootPackage = JSON.parse(readFileSync(join(REPOSITORY_ROOT, 'package.json'), 'utf8')) as { version: string }
-    const desktopPackage = JSON.parse(readFileSync(join(APP_ROOT, 'package.json'), 'utf8')) as { version: string }
-    expect(rootPackage.version).toBe('0.2.2-rc.3')
-    expect(desktopPackage.version).toBe('0.2.2-rc.3')
+    expect(desktopPackage.version).toBe(rootPackage.version)
+    expect(cliPackage.version).toBe(rootPackage.version)
   })
 
   it('resolves productVersion from strata-product.json, supports trimmed STRATA_PRODUCT_VERSION overrides, and rejects invalid SemVer', () => {
@@ -75,8 +84,11 @@ describe('StrataHarness dual-track product manifest and SemVer resolution', () =
     expect(resolveStrataProductVersion).toBeTypeOf('function')
     expect(readStrataProductManifest).toBeTypeOf('function')
 
-    expect(resolveStrataProductVersion({}, REPOSITORY_ROOT)).toBe('1.1.0')
-    expect(resolveStrataProductVersion({ STRATA_PRODUCT_VERSION: '   ' }, REPOSITORY_ROOT)).toBe('1.1.0')
+    const rawManifest = JSON.parse(readFileSync(join(REPOSITORY_ROOT, 'strata-product.json'), 'utf8')) as {
+      productVersion: string
+    }
+    expect(resolveStrataProductVersion({}, REPOSITORY_ROOT)).toBe(rawManifest.productVersion)
+    expect(resolveStrataProductVersion({ STRATA_PRODUCT_VERSION: '   ' }, REPOSITORY_ROOT)).toBe(rawManifest.productVersion)
     expect(resolveStrataProductVersion({ STRATA_PRODUCT_VERSION: ' 1.0.3 ' }, REPOSITORY_ROOT)).toBe('1.0.3')
     expect(resolveStrataProductVersion({ STRATA_PRODUCT_VERSION: '1.1.0-rc.1' }, REPOSITORY_ROOT)).toBe('1.1.0-rc.1')
 
@@ -102,7 +114,11 @@ describe('StrataHarness dual-track product manifest and SemVer resolution', () =
     expect(() => readStrataProductManifest(badTagRoot)).toThrow(/upstreamBaseTag/u)
   })
 
-  it('wires productVersion 1.1.0 and dshEngineVersion 0.2.2-rc.3 into electron-builder extraMetadata without mutating apps/desktop/package.json', () => {
+  it('wires productVersion and dshEngineVersion into electron-builder extraMetadata without mutating apps/desktop/package.json', () => {
+    const rawManifest = JSON.parse(readFileSync(join(REPOSITORY_ROOT, 'strata-product.json'), 'utf8')) as {
+      productVersion: string
+    }
+    const desktopPackageBefore = JSON.parse(readFileSync(join(APP_ROOT, 'package.json'), 'utf8')) as { version: string }
     const baseEnv: NodeJS.ProcessEnv = {
       DSH_DESKTOP_APP_ID: 'com.nikl.strataharness',
       DSH_DESKTOP_TARGET_PLATFORM: 'win32',
@@ -113,8 +129,8 @@ describe('StrataHarness dual-track product manifest and SemVer resolution', () =
     const defaultConfig = createElectronBuilderConfig(baseEnv, 'win32', 'x64')
     expect(defaultConfig.extraMetadata).toMatchObject({
       name: '@strata/desktop',
-      version: '1.1.0',
-      dshEngineVersion: '0.2.2-rc.3',
+      version: rawManifest.productVersion,
+      dshEngineVersion: desktopPackageBefore.version,
     })
     expect(defaultConfig.artifactName).toBe('strataharness-${version}-${os}-${arch}-unsigned.${ext}')
 
@@ -125,21 +141,22 @@ describe('StrataHarness dual-track product manifest and SemVer resolution', () =
     )
     expect(overrideConfig.extraMetadata).toMatchObject({
       version: '1.0.3',
-      dshEngineVersion: '0.2.2-rc.3',
+      dshEngineVersion: desktopPackageBefore.version,
     })
 
+    const buildVersion = `${desktopBuildVersionPrefix(rawManifest.productVersion)}20261029.1`
     const buildVersionConfig = createElectronBuilderConfig(
-      { ...baseEnv, DSH_DESKTOP_BUILD_VERSION: '1.1.0-test.20261029.1' },
+      { ...baseEnv, DSH_DESKTOP_BUILD_VERSION: buildVersion },
       'win32',
       'x64',
     )
     expect(buildVersionConfig.extraMetadata).toMatchObject({
-      version: '1.1.0-test.20261029.1',
-      dshEngineVersion: '0.2.2-rc.3',
+      version: buildVersion,
+      dshEngineVersion: desktopPackageBefore.version,
     })
 
-    const desktopPackage = JSON.parse(readFileSync(join(APP_ROOT, 'package.json'), 'utf8')) as { version: string }
-    expect(desktopPackage.version).toBe('0.2.2-rc.3')
+    const desktopPackageAfter = JSON.parse(readFileSync(join(APP_ROOT, 'package.json'), 'utf8')) as { version: string }
+    expect(desktopPackageAfter.version).toBe(desktopPackageBefore.version)
   }, 30_000)
 
   it('validates upload plans against strata-product.json productVersion when workspace package.json holds the DSH engine version', async () => {

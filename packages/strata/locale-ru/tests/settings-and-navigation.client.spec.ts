@@ -469,4 +469,17 @@ describe('Settings, navigation, plugin management, and Strata presets in @strata
       await boot.ctx.fiber.dispose()
     }
   })
+
+  it('serves Russian web search automatic mode hint and server-side search copy through ctx.locale', async () => {
+    const boot = await bootLocaleWithRu()
+    try {
+      const tWebSearch = boot.locale.bind('settings.webSearch')
+      expect(tWebSearch('providerLegacy')).toBe('Серверный поиск DeepSeek')
+      expect(tWebSearch('searchAutoHint')).toBe(
+        'Следует модели текущей сессии: модели DeepSeek используют серверный поиск DeepSeek без платы за каждый поиск; остальные модели используют DeepSeek Search API.',
+      )
+    } finally {
+      await boot.ctx.fiber.dispose()
+    }
+  })
 })

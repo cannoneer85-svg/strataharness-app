@@ -9,6 +9,7 @@ import { join, sep } from 'node:path'
 import { app, BrowserWindow, protocol, shell, clipboard } from 'electron'
 import { fileURLToPath } from 'node:url'
 import updaterModule from 'electron-updater'
+import { inc as semverInc } from 'semver'
 import { DesktopUpdateCoordinator } from '../../lib/types/update-coordinator.js'
 import { presentDesktopUpdate } from '../../lib/types/update-presentation.js'
 import { resolveDesktopLocale } from '../../lib/types/locale.js'
@@ -238,10 +239,16 @@ async function main() {
       assert.equal(STRATA_DESKTOP_PACKAGE_NAME, '@strata/desktop')
       assert.equal(STRATA_DESKTOP_URL_SCHEME, 'strata')
       assert.equal(STRATA_HOME_DIR_NAME, '.strataharness')
+      const expectedManifest = JSON.parse(
+        await readFile(fileURLToPath(new URL('../../../../strata-product.json', import.meta.url)), 'utf8'),
+      )
+      const expectedProductVersion = expectedManifest.productVersion
+      const nextProductVersion = semverInc(expectedProductVersion, 'patch')
+      assert.ok(nextProductVersion, `Expected patch increment for ${expectedProductVersion}`)
       const baseProductVersion = resolveStrataProductVersion({})
-      const targetProductVersion = resolveStrataProductVersion({ STRATA_PRODUCT_VERSION: '1.1.1' })
-      assert.equal(baseProductVersion, '1.1.0')
-      assert.equal(targetProductVersion, '1.1.1')
+      const targetProductVersion = resolveStrataProductVersion({ STRATA_PRODUCT_VERSION: nextProductVersion })
+      assert.equal(baseProductVersion, expectedProductVersion)
+      assert.equal(targetProductVersion, nextProductVersion)
 
       const strataDirectory = join(root, `strata-${++serial}`)
       const userDataDirectory = join(strataDirectory, 'userData')
